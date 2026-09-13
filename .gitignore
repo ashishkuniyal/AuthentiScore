@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+backend/venv/
+
+# Environment variables
+.env
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/raw/*
+data/processed/*
+data/external/*
+
+# Machine Learning
+*.pkl
+*.joblib
+*.bin
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
