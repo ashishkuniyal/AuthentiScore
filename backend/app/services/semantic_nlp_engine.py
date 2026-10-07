@@ -1,0 +1,207 @@
+"""
+AuthentiScore — Semantic NLP Engine
+=====================================
+
+Provides true Sequence Classification using a PyTorch-backed 
+HuggingFace Transformer model to detect spam and bot-like behavior 
+directly from the profile's bio text.
+
+Architecture
+------------
+1.  HuggingFace Pipeline loaded ONCE at module initialisation.
+2.  Bio text is fed into the neural network.
+3.  Model outputs a label (e.g., 'spam' or 'ham') and a confidence score.
+4.  Returns a bounded 0–100 semantic risk score.
+
+Model
+-----
+    mrm8488/bert-tiny-finetuned-sms-spam-detection
+
+Selected because it:
+  - Is extremely lightweight and lightning fast on CPU.
+  - Predicts spam/ham probabilities directly.
+  - Runs locally without external API calls.
+"""
+
+from __future__ import annotations
+
+import logging
+import unicodedata
+import re
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+# ==============================================================
+# Configuration
+# ==============================================================
+
+# We use a tiny, fast model for SMS/Text spam detection
+SEMANTIC_MODEL_NAME: str = "mrm8488/bert-tiny-finetuned-sms-spam-detection"
+SEMANTIC_MODEL_VERSION: str = "v2"
+
+
+# ==============================================================
+# Model Singleton
+# ==============================================================
+
+_classifier = None
+_model_load_error: Optional[str] = None
+
+
+def _load_model() -> bool:
+    """
+    Load the HuggingFace text-classification pipeline.
+    Called once at module initialisation.
+    """
+    global _classifier, _model_load_error
+
+    try:
+        from transformers import pipeline
+
+        logger.info(
+            "AuthentiScore Semantic NLP: Loading Sequence Classifier '%s'...",
+            SEMANTIC_MODEL_NAME,
+        )
+
+        # Initialize the pipeline
+        _classifier = pipeline(
+            "text-classification", 
+            model=SEMANTIC_MODEL_NAME, 
+            tokenizer=SEMANTIC_MODEL_NAME
+        )
+
+        logger.info("AuthentiScore Semantic NLP: Sequence Classifier loaded successfully.")
+        return True
+
+    except ImportError:
+        _model_load_error = (
+            "transformers or torch is not installed. "
+            "Run: pip install transformers torch"
+        )
+        logger.warning("Semantic NLP unavailable: %s", _model_load_error)
+        return False
+
+    except Exception as exc:
+        _model_load_error = (
+            f"Semantic NLP model failed to load: {type(exc).__name__}: {exc}"
+        )
+        logger.error("Semantic NLP model load error: %s", _model_load_error)
+        return False
+
+
+# Load model at import time (once per process)
+_model_available = _load_model()
+
+
+# ==============================================================
+# Text Preprocessing
+# ==============================================================
+
+def _preprocess(text: str) -> str:
+    """
+    Lightweight preprocessing to normalise the bio text before classification.
+    """
+    if not text:
+        return ""
+
+    # Unicode normalise
+    text = unicodedata.normalize("NFKC", text)
+
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Truncate to avoid context window limits
+    return text[:512]
+
+
+# ==============================================================
+# Main Semantic Analysis Function
+# ==============================================================
+
+def calculate_semantic_nlp_risk(bio: str) -> dict:
+    """
+    Analyse a profile bio using a PyTorch Sequence Classifier.
+
+    Returns
+    -------
+    dict with keys:
+        semantic_risk       : float  0–100
+        matched_categories  : list[dict] (kept for compatibility)
+        explanation         : str
+        model_available     : bool
+        error               : str|None
+        model_name          : str
+        model_version       : str
+    """
+
+    # ── 0. Model unavailable ─────────────────────────────────────────────────
+    if not _model_available or _classifier is None:
+        return {
+            "semantic_risk": 0.0,
+            "matched_categories": [],
+            "explanation": "Semantic NLP model is unavailable; semantic analysis skipped.",
+            "model_available": False,
+            "error": _model_load_error,
+            "model_name": SEMANTIC_MODEL_NAME,
+            "model_version": SEMANTIC_MODEL_VERSION,
+        }
+
+    # ── 1. Empty / whitespace-only bio ───────────────────────────────────────
+    preprocessed = _preprocess(bio or "")
+
+    if not preprocessed:
+        return {
+            "semantic_risk": 0.0,
+            "matched_categories": [],
+            "explanation": "No bio text provided; semantic analysis skipped.",
+            "model_available": True,
+            "error": None,
+            "model_name": SEMANTIC_MODEL_NAME,
+            "model_version": SEMANTIC_MODEL_VERSION,
+        }
+
+    # ── 2. Run Classification ────────────────────────────────────────────────
+    try:
+        # returns e.g. [{'label': 'LABEL_1', 'score': 0.98}]
+        result = _classifier(preprocessed)[0]
+        
+        label = result['label'].lower()
+        score = result['score']
+        
+        # 'mrm8488/bert-tiny-finetuned-sms-spam-detection' usually outputs LABEL_1 for spam
+        # or 'spam' depending on model config. We handle both.
+        is_spam = label in ['label_1', 'spam', 'toxic']
+        
+        if is_spam:
+            semantic_risk = round(score * 100, 2)
+            explanation = f"Neural Network detected SPAM behavior with {score:.0%} confidence."
+            ui_label = "Spam / Bot Content"
+        else:
+            semantic_risk = round((1.0 - score) * 100, 2)
+            explanation = f"Neural Network detected normal behavior with {score:.0%} confidence."
+            ui_label = "Authentic / Human Content"
+
+    except Exception as exc:
+        logger.error("Semantic NLP classification error: %s", exc)
+        return {
+            "semantic_risk": 0.0,
+            "matched_categories": [],
+            "explanation": f"Semantic classification failed: {type(exc).__name__}",
+            "model_available": True,
+            "error": str(exc),
+            "model_name": SEMANTIC_MODEL_NAME,
+            "model_version": SEMANTIC_MODEL_VERSION,
+        }
+
+    return {
+        "semantic_risk":       semantic_risk,
+        # Keep matched_categories format empty for backward compatibility with frontend
+        "matched_categories":  [{"category": ui_label, "similarity": round(score, 4)}],
+        "explanation":         explanation,
+        "model_available":     True,
+        "error":               None,
+        "model_name":          SEMANTIC_MODEL_NAME,
+        "model_version":       SEMANTIC_MODEL_VERSION,
+    }
