@@ -145,9 +145,11 @@ export default function HistoryPage() {
     const [sortAsc,  setSortAsc]  = useState(false);
     const [expanded, setExpanded] = useState(null);
 
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
     useEffect(() => {
         let isCancelled = false;
-        async function fetchHistory() {
+        async function load() {
             try { 
                 const data = await getScanHistory();
                 if (!isCancelled) setHistory(Array.isArray(data) ? data : []); 
@@ -155,9 +157,15 @@ export default function HistoryPage() {
             catch (err) { if (!isCancelled) setError(err.message || "Unable to load history."); }
             finally { if (!isCancelled) setLoading(false); }
         }
-        fetchHistory();
+        load();
         return () => { isCancelled = true; };
-    }, []);
+    }, [refreshTrigger]);
+
+    const handleRefresh = () => {
+        setLoading(true);
+        setError("");
+        setRefreshTrigger(t => t + 1);
+    };
 
 
     function toggleSort(key) {
@@ -244,7 +252,7 @@ export default function HistoryPage() {
                             style={{ width: 280, paddingLeft: 40, background: "var(--bg-surface-secondary)" }}
                         />
                     </div>
-                    <button className="btn-ghost" onClick={load} disabled={loading}>
+                    <button className="btn-ghost" onClick={handleRefresh} disabled={loading}>
                         {loading ? "Loading…" : "↻ Refresh"}
                     </button>
                 </div>

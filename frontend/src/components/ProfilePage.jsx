@@ -9,7 +9,7 @@ import {
 
 function ProfileContent({ user, refreshUser, initialTab = "overview" }) {
     const [activeSection, setActiveSection] = useState(initialTab);
-    const [, setLoading] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
     
     // User Profile Form State

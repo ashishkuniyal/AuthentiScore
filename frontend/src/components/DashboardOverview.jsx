@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { 
-    Activity, AlertTriangle, ShieldCheck, 
+    Activity, AlertTriangle, ShieldCheck, ShieldAlert,
     TrendingUp, TrendingDown, Brain,
     Clock, RefreshCw, Download, Upload, Search, MoreVertical, CheckCircle
 } from "lucide-react";
@@ -183,7 +183,7 @@ export default function DashboardOverview({ onNavigate }) {
             {error && (
                 <div className="bg-[rgba(220,38,38,0.06)] border border-[rgba(220,38,38,0.2)] rounded-2xl p-4 text-[#b91c1c] text-sm font-medium mb-6 flex justify-between items-center">
                     <span>⚠ {error}</span>
-                    <button className="btn-ghost text-xs py-1.5 px-3" onClick={loadData}>Retry</button>
+                    <button className="btn-ghost text-xs py-1.5 px-3" onClick={() => setRefreshTrigger(t => t + 1)}>Retry</button>
                 </div>
             )}
             

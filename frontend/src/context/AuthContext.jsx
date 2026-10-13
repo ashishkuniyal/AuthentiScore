@@ -11,6 +11,7 @@ import {
     setPersistence
 } from "firebase/auth";
 import { auth } from "../config/firebase";
+import { API_BASE_URL } from "../config/env";
 import { AuthContext } from "./authContextInstance";
 
 function normalizeUser(backendData, firebaseUser) {
