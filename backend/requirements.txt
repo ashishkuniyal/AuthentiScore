@@ -1,30 +1,49 @@
-fastapi
-uvicorn[standard]
-python-dotenv
-pydantic
-pymongo
+# ─────────────────────────────────────────────────────────────
+# AuthentiScore — Backend Runtime Requirements
+# Python 3.10+ required (3.12 recommended)
+# ─────────────────────────────────────────────────────────────
 
-pandas
-numpy
-scikit-learn
+# Web framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
 
-xgboost
-imbalanced-learn
-instaloader
+# Config / env
+python-dotenv==1.1.0
 
-spacy
-nltk
-sentence-transformers
-transformers
-torch
+# Data validation
+pydantic[email]==2.11.3
 
-shap
-joblib
+# Database
+pymongo==4.12.1
 
-httpx
-beautifulsoup4
-lxml
-reportlab
-pillow
-python-multipartgoogle-auth==2.58.0
-PyJWT==2.14.0
+# ML — pin tightly (pickles are version-fragile)
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.5.2
+xgboost==2.1.4
+shap==0.46.0
+joblib==1.4.2
+
+# HTTP client (replaces requests everywhere)
+httpx==0.28.1
+
+# HTML parsing
+beautifulsoup4==4.13.4
+lxml==5.4.0
+
+# NLP / transformers (lazy-loaded; optional at runtime)
+transformers==4.51.3
+torch==2.7.0
+
+# PDF generation
+reportlab==4.4.1
+pillow==11.2.1
+
+# Multipart file uploads
+python-multipart==0.0.20
+
+# Firebase Admin SDK (token verification)
+firebase-admin==6.7.0
+
+# Instagram scraping (optional; requires credentials in .env)
+instaloader==4.14.1

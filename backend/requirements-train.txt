@@ -1,0 +1,7 @@
+# ─────────────────────────────────────────────────────────────
+# AuthentiScore — Training-Only Requirements
+# Install these only when retraining the ML model:
+#   pip install -r requirements-train.txt
+# ─────────────────────────────────────────────────────────────
+
+imbalanced-learn==0.13.0
