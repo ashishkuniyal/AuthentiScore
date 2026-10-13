@@ -17,8 +17,10 @@ from app.routes.history import router as history_router
 from app.routes.bulk import router as bulk_router
 from app.routes.audit import router as audit_router
 from app.routes.admin import router as admin_router
+from app.routes.system import router as system_router
 
 logger = logging.getLogger(__name__)
+
 
 
 # ==================================================
@@ -94,6 +96,8 @@ app.include_router(history_router)
 app.include_router(bulk_router)
 app.include_router(audit_router)
 app.include_router(admin_router)
+app.include_router(system_router)
+
 
 
 
