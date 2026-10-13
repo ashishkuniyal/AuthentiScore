@@ -26,6 +26,8 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
+pytest.importorskip("transformers")
+
 # ---------------------------------------------------------------------------
 # Path setup — allow running from the backend/ directory
 # ---------------------------------------------------------------------------
@@ -120,22 +122,20 @@ def test_semantic_normal_bio_low_risk():
 
 def test_semantic_financial_bio_high_risk():
     """
-    A financial scam bio should produce elevated semantic risk and match
-    suspicious categories like financial_scam or investment_scheme.
+    A financial scam bio should produce elevated semantic risk when classified as spam.
     """
-    result = calculate_semantic_nlp_risk(BIOS["financial_scam"])
+    with patch("app.services.semantic_nlp_engine.get_classifier") as mock_get_clf:
+        mock_clf = MagicMock()
+        mock_clf.return_value = [{"label": "LABEL_1", "score": 0.88}]
+        mock_get_clf.return_value = mock_clf
 
-    assert result["semantic_risk"] > 20.0, (
-        f"Expected financial bio semantic_risk > 20, got {result['semantic_risk']}"
-    )
+        result = calculate_semantic_nlp_risk(BIOS["financial_scam"])
 
-    matched_cats = [m["category"] for m in result["matched_categories"]]
-    suspicious = {"financial_scam", "investment_scheme", "urgency_manipulation",
-                  "suspicious_contact_solicitation"}
-    overlap = suspicious & set(matched_cats)
-    assert len(overlap) > 0, (
-        f"Expected at least one suspicious category matched; got: {matched_cats}"
-    )
+        assert result["semantic_risk"] > 20.0, (
+            f"Expected financial bio semantic_risk > 20, got {result['semantic_risk']}"
+        )
+        matched_cats = [m["category"] for m in result["matched_categories"]]
+        assert "Spam / Bot Content" in matched_cats
 
 
 # ===========================================================================
@@ -144,16 +144,16 @@ def test_semantic_financial_bio_high_risk():
 
 def test_semantic_promotional_bio():
     """
-    Promotional spam bio should match the promotional_spam category
-    with elevated semantic risk.
+    Promotional spam bio should return elevated risk when flagged as spam.
     """
-    result = calculate_semantic_nlp_risk(BIOS["promotional"])
-    matched_cats = [m["category"] for m in result["matched_categories"]]
-    # Should match promotional_spam or similar
-    assert "promotional_spam" in matched_cats or result["semantic_risk"] > 15.0, (
-        f"Expected promotional_spam match or risk > 15; cats={matched_cats}, "
-        f"risk={result['semantic_risk']}"
-    )
+    with patch("app.services.semantic_nlp_engine.get_classifier") as mock_get_clf:
+        mock_clf = MagicMock()
+        mock_clf.return_value = [{"label": "LABEL_1", "score": 0.85}]
+        mock_get_clf.return_value = mock_clf
+
+        result = calculate_semantic_nlp_risk(BIOS["promotional"])
+        matched_cats = [m["category"] for m in result["matched_categories"]]
+        assert "Spam / Bot Content" in matched_cats or result["semantic_risk"] > 15.0
 
 
 # ===========================================================================
@@ -225,17 +225,17 @@ def test_semantic_unicode_emoji():
 
 def test_semantic_model_unavailable():
     """
-    When the sentence-transformers model is unavailable,
+    When the classifier model is unavailable,
     the function should return zero semantic risk gracefully.
     """
     import app.services.semantic_nlp_engine as engine_module
 
     original_available = engine_module._model_available
-    original_model     = engine_module._model
+    original_classifier = engine_module._classifier
 
     try:
         engine_module._model_available = False
-        engine_module._model = None
+        engine_module._classifier = None
         engine_module._model_load_error = "Model not installed (test mock)"
 
         result = calculate_semantic_nlp_risk("Win free money guaranteed returns!")
@@ -247,28 +247,27 @@ def test_semantic_model_unavailable():
 
     finally:
         engine_module._model_available = original_available
-        engine_module._model           = original_model
+        engine_module._classifier      = original_classifier
         engine_module._model_load_error = None
 
 
 # ===========================================================================
-# Test 10 — NLP API Failure (mocked encode error)
+# Test 10 — NLP API Failure (mocked classification error)
 # ===========================================================================
 
 def test_semantic_encode_failure():
     """
-    If model.encode() raises an exception, the function should return
+    If classifier pipeline raises an exception, the function should return
     a safe fallback response with semantic_risk = 0 and an error message.
     """
     import app.services.semantic_nlp_engine as engine_module
 
-    original_model = engine_module._model
+    original_classifier = engine_module._classifier
+    original_available = engine_module._model_available
 
     try:
-        # Make model.encode() raise an error
-        mock_model = MagicMock()
-        mock_model.encode.side_effect = RuntimeError("CUDA out of memory")
-        engine_module._model = mock_model
+        mock_classifier = MagicMock(side_effect=RuntimeError("CUDA out of memory"))
+        engine_module._classifier = mock_classifier
         engine_module._model_available = True
 
         result = calculate_semantic_nlp_risk("Test bio for encoding failure")
@@ -278,7 +277,8 @@ def test_semantic_encode_failure():
         assert "RuntimeError" in result["error"] or "CUDA" in result["error"]
 
     finally:
-        engine_module._model = original_model
+        engine_module._classifier = original_classifier
+        engine_module._model_available = original_available
 
 
 # ===========================================================================

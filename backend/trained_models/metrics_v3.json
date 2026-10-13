@@ -1,11 +1,48 @@
 {
-    "LR_cv_roc_auc": 0.9689981447124303,
-    "RF_cv_roc_auc": 0.9899924628942486,
-    "XGB_cv_roc_auc": 0.9865491651205935,
-    "test_brier_score": 0.0677094646346276,
-    "test_roc_auc": 0.9706122448979592,
-    "test_accuracy": 0.9071428571428571,
-    "cross_dataset_instafake_brier": 0.06768404052112635,
-    "cross_dataset_instafake_roc_auc": 0.9844315895372234,
-    "cross_dataset_instafake_accuracy": 0.9120603015075377
+    "model_version": "v3",
+    "model_name": "CalibratedEnsemble_LR_RF_XGB",
+    "training_date": "2026-10-13T10:38:37.796460+00:00",
+    "chosen_variant": "class_weighted",
+    "features": [
+        "followers",
+        "following",
+        "posts",
+        "bio_length",
+        "has_profile_picture",
+        "is_private",
+        "username_digit_ratio",
+        "follower_following_ratio",
+        "profile_completeness"
+    ],
+    "dataset_row_counts": {
+        "total_rows": 696,
+        "train_rows": 556,
+        "test_rows": 140
+    },
+    "library_versions": {
+        "scikit_learn": "1.9.1",
+        "xgboost": "3.4.1",
+        "numpy": "2.5.3",
+        "pandas": "3.0.5"
+    },
+    "variant_comparison": {
+        "smote": {
+            "test_brier_score": 0.0677,
+            "test_roc_auc": 0.9706,
+            "test_accuracy": 0.9071
+        },
+        "class_weighted": {
+            "test_brier_score": 0.0667,
+            "test_roc_auc": 0.971,
+            "test_accuracy": 0.9071
+        }
+    },
+    "test_brier_score": 0.0667,
+    "test_roc_auc": 0.971,
+    "test_accuracy": 0.9071,
+    "cross_dataset_instafake": {
+        "brier_score": 0.0686,
+        "roc_auc": 0.9841,
+        "accuracy": 0.9104
+    }
 }

@@ -1,16 +1,46 @@
-# React + Vite
+# AuthentiScore Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+AuthentiScore is an enterprise-grade AI profile authenticity and bot detection platform. The frontend is built using **React 19**, **Vite**, **Tailwind CSS v4**, and **Firebase Authentication**.
 
-Currently, two official plugins are available:
+## Getting Started
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### Prerequisites
+- Node.js 20+
+- npm 10+
 
-## React Compiler
+### Setup
+1. Install dependencies:
+   ```bash
+   npm ci
+   ```
+2. Configure environment:
+   ```bash
+   cp .env.example .env
+   ```
+   Set `VITE_API_URL` (default: `http://localhost:8000`).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+3. Start development server:
+   ```bash
+   npm run dev
+   ```
 
-## Expanding the Oxlint configuration
+### Quality & Build Commands
+- **Lint**: Run fast static analysis via Oxlint (enforced to 0 warnings):
+  ```bash
+  npm run lint
+  ```
+- **Build**: Compile production assets:
+  ```bash
+  npm run build
+  ```
+- **Preview**: Preview production build locally:
+  ```bash
+  npm run preview
+  ```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Architecture
+- `src/config/`: Centralized API/WS URLs (`env.js`) and Firebase Auth setup (`firebase.js`).
+- `src/services/api.js`: Unified API client with automatic Firebase token refresh and 401 retry.
+- `src/context/`: Decoupled Auth and Notifications WebSocket contexts with clean Fast Refresh exports.
+- `src/utils/`: Single source of truth for risk bands (34/67/90 thresholds), formatting, and toasts.
+- `src/components/`: Interactive dashboard, profile scanner, batch CSV processor, audience auditor, and settings.

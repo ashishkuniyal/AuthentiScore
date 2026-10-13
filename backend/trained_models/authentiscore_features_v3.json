@@ -1,0 +1,11 @@
+[
+    "followers",
+    "following",
+    "posts",
+    "bio_length",
+    "has_profile_picture",
+    "is_private",
+    "username_digit_ratio",
+    "follower_following_ratio",
+    "profile_completeness"
+]
