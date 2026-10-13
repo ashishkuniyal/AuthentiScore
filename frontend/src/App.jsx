@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { sendEmailVerification } from "firebase/auth";
+import { auth } from "./config/firebase";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import DashboardOverview from "./components/DashboardOverview";
@@ -69,6 +71,23 @@ function AppMain() {
 
 export default function App() {
     const { user, loading, authError, retryAuth, logout } = useAuth();
+    const [sendingVerification, setSendingVerification] = useState(false);
+    const [verificationSent, setVerificationSent] = useState(false);
+    const [verifyError, setVerifyError] = useState(null);
+
+    const handleResendVerification = async () => {
+        if (!auth.currentUser) return;
+        setSendingVerification(true);
+        setVerifyError(null);
+        try {
+            await sendEmailVerification(auth.currentUser);
+            setVerificationSent(true);
+        } catch (e) {
+            setVerifyError(e.message || "Failed to send verification email");
+        } finally {
+            setSendingVerification(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -79,14 +98,44 @@ export default function App() {
     }
 
     if (authError) {
+        const isVerificationError = authError.toLowerCase().includes("verified");
         return (
             <div className="h-screen w-screen flex items-center justify-center bg-[var(--bg-app)] p-6">
                 <div className="premium-glass p-8 max-w-md w-full text-center space-y-4 border border-rose-500/20">
-                    <h2 className="text-xl font-bold text-rose-400">Authentication Error</h2>
+                    <h2 className="text-xl font-bold text-rose-400">
+                        {isVerificationError ? "Email Verification Required" : "Authentication Error"}
+                    </h2>
                     <p className="text-sm text-[var(--text-secondary)]">{authError}</p>
-                    <div className="flex gap-3 justify-center pt-2">
-                        <button className="btn-primary" onClick={retryAuth}>Retry Connection</button>
-                        <button className="btn-secondary" onClick={logout}>Sign Out</button>
+                    
+                    {isVerificationError && (
+                        <div className="text-xs text-[var(--text-muted)] bg-[var(--bg-surface-secondary)] p-3 rounded-lg border border-[var(--border-inner)] space-y-1">
+                            {verificationSent ? (
+                                <p className="text-emerald-400 font-semibold">✓ Verification email sent! Please check your inbox/spam folder, click the link, and click Retry.</p>
+                            ) : (
+                                <p>Firebase requires email verification for password accounts. Click below to receive a verification link.</p>
+                            )}
+                            {verifyError && <p className="text-rose-400">{verifyError}</p>}
+                        </div>
+                    )}
+
+                    <div className="flex flex-col gap-2 pt-2">
+                        {isVerificationError && !verificationSent && (
+                            <button 
+                                className="btn-primary w-full" 
+                                onClick={handleResendVerification}
+                                disabled={sendingVerification}
+                            >
+                                {sendingVerification ? "Sending..." : "Resend Verification Email"}
+                            </button>
+                        )}
+                        <div className="flex gap-3 justify-center">
+                            <button className={isVerificationError && !verificationSent ? "btn-secondary flex-1" : "btn-primary flex-1"} onClick={retryAuth}>
+                                Retry Connection
+                            </button>
+                            <button className="btn-secondary flex-1" onClick={logout}>
+                                Sign Out
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

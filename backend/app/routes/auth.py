@@ -107,9 +107,10 @@ def verify_token_string(token: str) -> dict:
         )
 
     # S1 / DECISION D2: Require email_verified for password sign-ups
+    require_verification = os.getenv("REQUIRE_EMAIL_VERIFICATION", "true").lower() in ("true", "1", "yes")
     provider = decoded_token.get("firebase", {}).get("sign_in_provider", "")
     email_verified = decoded_token.get("email_verified", False)
-    if provider == "password" and not email_verified:
+    if require_verification and provider == "password" and not email_verified:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email address must be verified before signing in.",
