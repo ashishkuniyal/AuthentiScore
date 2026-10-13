@@ -10,6 +10,7 @@ jobs:
   backend:
     name: Backend Tests & Quality
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -28,12 +29,18 @@ jobs:
 
       - name: Run Hermetic Pytest Suite
         working-directory: backend
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HF_DATASETS_OFFLINE: "1"
+          REQUIRE_EMAIL_VERIFICATION: "false"
         run: |
           pytest -q
 
   frontend:
     name: Frontend Lint & Build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4

@@ -11,6 +11,13 @@ Hermetic test environment for all unit and integration tests (M3).
 
 import sys
 import os
+
+# Enforce offline & hermetic test environment immediately (M3)
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+os.environ["REQUIRE_EMAIL_VERIFICATION"] = "false"
+
 from pathlib import Path
 import pytest
 import numpy as np
@@ -135,3 +142,25 @@ def hermetic_env(monkeypatch, tiny_trained_pipeline):
     monkeypatch.setattr(ms, "get_features", lambda: FEATURES_LIST)
     monkeypatch.setattr(ms, "is_loaded", lambda: True)
     monkeypatch.setattr(ms, "get_load_error", lambda: None)
+
+    # 3. Hermetic NLP pipelines (M3 — zero network / download)
+    def mock_semantic_classifier(text):
+        text_lower = str(text).lower()
+        spam_signals = [
+            "guaranteed", "double your money", "whatsapp", "5000",
+            "free iphone", "act now", "limited time", "buy real followers",
+            "earn money", "giveaway", "selected", "crypto", "scam"
+        ]
+        if any(s in text_lower for s in spam_signals):
+            return [{"label": "LABEL_1", "score": 0.88}]
+        return [{"label": "LABEL_0", "score": 0.95}]
+
+    import app.services.semantic_nlp_engine as sem_nlp
+    monkeypatch.setattr(sem_nlp, "_classifier", mock_semantic_classifier)
+    monkeypatch.setattr(sem_nlp, "_model_available", True)
+    monkeypatch.setattr(sem_nlp, "get_classifier", lambda: sem_nlp._classifier or mock_semantic_classifier)
+
+    import app.services.nlp_engine as nlp_mod
+    monkeypatch.setattr(nlp_mod, "_nlp_pipeline", None)
+    monkeypatch.setattr(nlp_mod, "_nlp_load_failed", True)
+    monkeypatch.setattr(nlp_mod, "get_nlp_pipeline", lambda: None)
