@@ -200,13 +200,13 @@ def collect_profile(profile_url: str) -> dict:
     # ── 3. Cascade through collectors — stop at first success/partial ─
     # "failed" means the collector could not get even a username;
     # "partial" or "success" means useful data was collected — stop.
-    last_profile = None
+    best_profile = None
 
     for collector in candidates:
         try:
             profile = collector.run(profile_url)
         except Exception as exc:
-            last_profile = {
+            profile = {
                 "collection_status":   "failed",
                 "collection_source":   "none",
                 "platform":            validation["platform"],
@@ -223,18 +223,33 @@ def collect_profile(profile_url: str) -> dict:
                 "fields_collected":    [],
                 "error":               f"Collector error: {type(exc).__name__}.",
             }
-            continue
 
-        last_profile = profile
+        # Keep the best attempt (most fields collected, or informative error)
+        if best_profile is None:
+            best_profile = profile
+        else:
+            best_fields = len(best_profile.get("fields_collected", []))
+            curr_fields = len(profile.get("fields_collected", []))
+            if curr_fields > best_fields:
+                best_profile = profile
+            elif curr_fields == best_fields and profile.get("collection_status") != "failed" and best_profile.get("collection_status") == "failed":
+                best_profile = profile
 
-        # Stop cascading if we got at least partial data
-        if profile.get("collection_status") in ("success", "partial"):
+        # Stop early only on success, or on partial that contains followers and following (C12)
+        status = profile.get("collection_status")
+        fields = set(profile.get("fields_collected", []))
+        if status == "success":
+            best_profile = profile
+            break
+        if status == "partial" and {"followers", "following"}.issubset(fields):
+            best_profile = profile
             break
 
-    profile = last_profile
+    profile = best_profile
 
     # Ensure profile_url is always populated
-    profile.setdefault("profile_url", profile_url)
+    if profile:
+        profile.setdefault("profile_url", profile_url)
 
     return profile
 

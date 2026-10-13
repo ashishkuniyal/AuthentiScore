@@ -47,15 +47,18 @@ SEMANTIC_MODEL_VERSION: str = "v2"
 # ==============================================================
 
 _classifier = None
+_model = None
+_model_available: Optional[bool] = None
 _model_load_error: Optional[str] = None
 
 
-def _load_model() -> bool:
-    """
-    Load the HuggingFace text-classification pipeline.
-    Called once at module initialisation.
-    """
-    global _classifier, _model_load_error
+def get_classifier():
+    """Lazy load text classification pipeline on first use."""
+    global _classifier, _model, _model_available, _model_load_error
+    if _model is not None and _model is not _classifier:
+        return _model
+    if _model_available is not None:
+        return _classifier
 
     try:
         from transformers import pipeline
@@ -65,15 +68,14 @@ def _load_model() -> bool:
             SEMANTIC_MODEL_NAME,
         )
 
-        # Initialize the pipeline
         _classifier = pipeline(
             "text-classification", 
             model=SEMANTIC_MODEL_NAME, 
             tokenizer=SEMANTIC_MODEL_NAME
         )
-
+        _model_available = True
         logger.info("AuthentiScore Semantic NLP: Sequence Classifier loaded successfully.")
-        return True
+        return _classifier
 
     except ImportError:
         _model_load_error = (
@@ -81,18 +83,16 @@ def _load_model() -> bool:
             "Run: pip install transformers torch"
         )
         logger.warning("Semantic NLP unavailable: %s", _model_load_error)
-        return False
+        _model_available = False
+        return None
 
     except Exception as exc:
         _model_load_error = (
             f"Semantic NLP model failed to load: {type(exc).__name__}: {exc}"
         )
         logger.error("Semantic NLP model load error: %s", _model_load_error)
-        return False
-
-
-# Load model at import time (once per process)
-_model_available = _load_model()
+        _model_available = False
+        return None
 
 
 # ==============================================================
@@ -135,9 +135,12 @@ def calculate_semantic_nlp_risk(bio: str) -> dict:
         model_name          : str
         model_version       : str
     """
+    global _classifier, _model_available, _model_load_error
+
+    clf = get_classifier()
 
     # ── 0. Model unavailable ─────────────────────────────────────────────────
-    if not _model_available or _classifier is None:
+    if not _model_available or clf is None:
         return {
             "semantic_risk": 0.0,
             "matched_categories": [],
@@ -165,7 +168,7 @@ def calculate_semantic_nlp_risk(bio: str) -> dict:
     # ── 2. Run Classification ────────────────────────────────────────────────
     try:
         # returns e.g. [{'label': 'LABEL_1', 'score': 0.98}]
-        result = _classifier(preprocessed)[0]
+        result = clf(preprocessed)[0]
         
         label = result['label'].lower()
         score = result['score']

@@ -149,7 +149,7 @@ class YouTubeCollector(BaseCollector):
             "display_name":        display_name,
             "bio":                 bio,
             "followers":           followers,
-            "following":           0,  # YouTube doesn't expose following counts publicly
+            "following":           None,  # YouTube does not expose following counts publicly (C14)
             "posts":               posts,
             "has_profile_picture": has_profile_picture,
             "is_private":          0,

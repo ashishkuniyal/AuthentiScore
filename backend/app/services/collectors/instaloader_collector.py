@@ -51,29 +51,38 @@ INSTAGRAM_DOMAINS = {
     "www.instagram.com",
 }
 
-# Session file stored next to this file so it persists across restarts.
-_SESSION_DIR = Path(__file__).parent / ".instaloader_sessions"
-_SESSION_DIR.mkdir(exist_ok=True)
+import time
+
+# Cooldown state for Instagram login failures (C13)
+_loader = None
+_last_login_failure: float = 0.0
+_LOGIN_COOLDOWN_SECONDS: float = 900.0  # 15 minutes
+
+
+def _get_session_dir() -> Path:
+    """Return session directory, creating it lazily with 0700 permissions (B3, S7)."""
+    custom = os.getenv("INSTALOADER_SESSION_DIR", "").strip()
+    p = Path(custom) if custom else Path.home() / ".authentiscore" / "sessions"
+    p.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return p
 
 
 # ==============================================================
 # Singleton loader — created once per process
 # ==============================================================
 
-_loader = None
-
-
 def _get_loader():
     """
     Return (or create) the shared instaloader.Instaloader instance.
 
     If INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are configured in .env,
-    an authenticated session is used.  Otherwise the loader runs
+    an authenticated session is used. Otherwise the loader runs
     anonymously.
 
     Calling this function multiple times returns the same instance.
+    Cached login failures prevent repeated login attempts (C13).
     """
-    global _loader
+    global _loader, _last_login_failure
 
     if _loader is not None:
         return _loader
@@ -96,23 +105,35 @@ def _get_loader():
         )
 
         if ig_username and ig_password:
-            session_file = _SESSION_DIR / f"{ig_username}.session"
+            # Check 15-minute login cooldown before attempting
+            if _last_login_failure and (time.time() - _last_login_failure) < _LOGIN_COOLDOWN_SECONDS:
+                logger.warning(
+                    "InstaLoader: In login cooldown (%d s remaining); running anonymously.",
+                    int(_LOGIN_COOLDOWN_SECONDS - (time.time() - _last_login_failure))
+                )
+                _loader = loader
+                return _loader
+
+            session_file = _get_session_dir() / f"{ig_username}.session"
 
             # Reuse existing session to avoid re-authentication on every restart
             if session_file.exists():
                 try:
                     loader.load_session_from_file(ig_username, str(session_file))
-                    logger.info(
-                        "InstaLoader: Restored session for @%s", ig_username
-                    )
+                    logger.info("InstaLoader: Restored session for @%s", ig_username)
                 except Exception as exc:
                     logger.warning(
-                        "InstaLoader: Could not restore session (%s) — "
-                        "re-authenticating.", exc
+                        "InstaLoader: Could not restore session (%s) — re-authenticating.", exc
                     )
-                    _login_and_save(loader, ig_username, ig_password, session_file)
+                    try:
+                        _login_and_save(loader, ig_username, ig_password, session_file)
+                    except Exception:
+                        _last_login_failure = time.time()
             else:
-                _login_and_save(loader, ig_username, ig_password, session_file)
+                try:
+                    _login_and_save(loader, ig_username, ig_password, session_file)
+                except Exception:
+                    _last_login_failure = time.time()
         else:
             logger.info(
                 "InstaLoader: No Instagram credentials configured — "
@@ -201,7 +222,8 @@ class InstaLoaderCollector(BaseCollector):
             following = profile.followees
             posts     = profile.mediacount
             bio       = profile.biography or None
-            has_pic   = parse_bool_to_int(bool(profile.profile_pic_url))
+            # Return None unless default avatar detection is implemented (C18)
+            has_pic   = None
             is_priv   = parse_bool_to_int(profile.is_private)
 
             return {
@@ -249,6 +271,25 @@ class InstaLoaderCollector(BaseCollector):
             }
 
     def normalize(self, raw: dict) -> dict:
+        if not raw.get("success"):
+            return {
+                "platform":            "instagram",
+                "profile_url":         raw.get("url", ""),
+                "username":            raw.get("username"),
+                "display_name":        None,
+                "bio":                 None,
+                "followers":           None,
+                "following":           None,
+                "posts":               None,
+                "has_profile_picture": None,
+                "is_private":          None,
+                "collection_source":   "none",
+                "collection_status":   "failed",
+                "collected_at":        utc_now_iso(),
+                "fields_collected":    [],
+                "error":               raw.get("error"),
+            }
+
         profile = {
             "platform":            "instagram",
             "profile_url":         raw.get("url", ""),
@@ -270,14 +311,10 @@ class InstaLoaderCollector(BaseCollector):
         return profile
 
     def validate(self, profile: dict) -> dict:
-        if not profile.get("username"):
-            profile["collection_status"] = "failed"
-            if not profile.get("error"):
-                profile["error"] = (
-                    "Instagram profile data could not be collected. "
-                    "The profile may be private or instaloader may need "
-                    "Instagram credentials — add them to the .env file."
-                )
+        # Never overwrite an existing error or failed status (C12)
+        if profile.get("collection_status") == "failed" or profile.get("error"):
+            if not profile.get("username"):
+                profile["collection_status"] = "failed"
             return profile
 
         core = {"followers", "following", "posts"}
@@ -310,6 +347,6 @@ class InstaLoaderCollector(BaseCollector):
 
 
 def _source_label() -> str:
-    """Return the appropriate collection_source label."""
+    """Return the appropriate collection_source label (C13)."""
     ig_username = os.getenv("INSTAGRAM_USERNAME", "").strip()
-    return "official_api" if ig_username else "permitted_public_page"
+    return "authenticated_scraper" if ig_username else "permitted_public_page"

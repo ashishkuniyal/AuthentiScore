@@ -39,7 +39,6 @@ from bs4 import BeautifulSoup
 from app.services.collectors.base_collector import BaseCollector
 from app.services.collectors.generic_public_collector import (
     compute_fields_collected,
-    extract_embedded_json,
     extract_json_ld,
     extract_opengraph,
     extract_twitter_card,
@@ -300,32 +299,32 @@ class InstagramCollector(BaseCollector):
             if posts_match:
                 posts = parse_count(posts_match.group(1))
 
-            # Remove the count prefix from bio text
-            bio = re.sub(
-                r"^[\d,\.]+[KMB]?\s+Followers,\s*[\d,\.]+[KMB]?\s+Following,"
-                r"\s*[\d,\.]+[KMB]?\s+Posts?\s*[-–—]\s*",
-                "",
-                bio,
-                flags=re.IGNORECASE,
-            ).strip() or bio
+            # Detect and discard generic login-wall descriptions (C17)
+            lower_bio = bio.lower()
+            if any(marker in lower_bio for marker in ["log in", "create an account", "sign up", "see photos and videos"]):
+                bio = None
 
         # -- Profile picture --
         has_profile_picture = None
         if og.get("image") or tc.get("image"):
             has_profile_picture = 1
 
+        has_title_handle = bool("(@" in og.get("title", "") or "(@" in tc.get("title", ""))
+        has_counts = bool(followers is not None or following is not None or posts is not None)
+        success = has_counts or has_title_handle
+
         return {
-            "success":             bool(extracted_username),
-            "username":            extracted_username or None,
-            "display_name":        display_name,
+            "success":             success,
+            "username":            extracted_username if success else None,
+            "display_name":        display_name if success else None,
             "bio":                 bio,
             "followers":           followers,
             "following":           following,
             "posts":               posts,
-            "has_profile_picture": has_profile_picture,
+            "has_profile_picture": has_profile_picture if success else None,
             "is_private":          None,   # not exposed in public HTML
-            "error":               None if extracted_username else (
-                "Unable to extract profile data from Instagram's public page."
+            "error":               None if success else (
+                "Unable to extract profile data from Instagram's public page (login wall encountered)."
             ),
         }
 

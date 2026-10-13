@@ -33,7 +33,9 @@ class ApifyInstagramCollector:
         # Enforce conservative sample size
         sample_size = min(sample_size, 50)
 
-        url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/run-sync-get-dataset-items?token={token}"
+        # S6: Send token in Bearer header, not in query string
+        url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/run-sync-get-dataset-items"
+        headers = {"Authorization": f"Bearer {token}"}
         
         payload = {
             "usernames": [username],
@@ -41,7 +43,9 @@ class ApifyInstagramCollector:
             "maxPerUsername": sample_size,
         }
         
-        if session_id:
+        # S8 / D5: Do not forward session cookies unless explicitly enabled
+        forward_session = os.getenv("APIFY_FORWARD_SESSION", "").lower() == "true"
+        if session_id and forward_session:
             payload["cookie"] = f"sessionid={session_id}"
             payload["cookies"] = [{"name": "sessionid", "value": session_id, "domain": ".instagram.com", "path": "/"}]
             payload["sessionid"] = session_id
@@ -49,11 +53,13 @@ class ApifyInstagramCollector:
         try:
             # We use timeout=120.0 because synchronous actor runs can take some time
             with httpx.Client(timeout=120.0) as client:
-                response = client.post(url, json=payload)
+                response = client.post(url, json=payload, headers=headers)
         except httpx.TimeoutException:
             raise Exception("Apify actor run timed out. The scraping took too long or the actor is unavailable.")
         except Exception as e:
             err = str(e)
+            if token:
+                err = ApifyInstagramCollector._redact_errors(err, token)
             if session_id:
                 err = ApifyInstagramCollector._redact_errors(err, session_id)
             raise Exception(f"Failed to connect to Apify: {err}")
@@ -66,8 +72,10 @@ class ApifyInstagramCollector:
             err_msg = f"Apify API error (HTTP {response.status_code})"
             try:
                 err_msg += f": {response.json()}"
-            except:
+            except Exception:
                 pass
+            if token:
+                err_msg = ApifyInstagramCollector._redact_errors(err_msg, token)
             if session_id:
                 err_msg = ApifyInstagramCollector._redact_errors(err_msg, session_id)
             raise Exception(err_msg)
@@ -99,30 +107,25 @@ class ApifyInstagramCollector:
             if not f_username:
                 continue
                 
-            # Deterministic baseline numbers so ML doesn't flag missing fields as 0-stat bots
-            # We use the length of the username to vary it slightly
-            base_mult = len(f_username)
             has_pic = 1 if item.get("profilePictureUrl") else 0
             is_priv = 1 if item.get("isPrivate") else 0
             is_verif = 1 if item.get("isVerified") else 0
-            
-            baseline_followers = (150 * base_mult) if has_pic else (10 * base_mult)
-            baseline_following = (120 * base_mult) if has_pic else (40 * base_mult)
-            baseline_posts = (5 * base_mult) if has_pic else 0
-            baseline_bio = "Instagram user" if has_pic else ""
 
+            # C14: Never fabricate baseline numbers. Unknown fields remain None.
             follower = {
                 "identifier": f_username,
                 "platform": "instagram",
                 "profile_url": f"https://www.instagram.com/{f_username}/",
+                "username": f_username,
                 "display_name": item.get("fullName"),
                 "has_profile_picture": has_pic,
                 "is_private": is_priv,
                 "is_verified": is_verif,
-                "followers": baseline_followers,  # Provided as baseline to prevent false flags
-                "following": baseline_following,
-                "posts": baseline_posts,
-                "bio": baseline_bio
+                "followers": None,
+                "following": None,
+                "posts": None,
+                "bio": None,
+                "collection_status": "partial",
             }
             followers.append(follower)
 

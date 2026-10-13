@@ -37,35 +37,22 @@ from bs4 import BeautifulSoup
 # Conservative timeouts — single request per scan.
 REQUEST_TIMEOUT = 10.0           # seconds
 
-# Minimal browser-like headers to access public pages.
-# No session cookies, authentication, or tracking tokens.
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-]
+# Honest User-Agent aligning with collection policy (C15, D8)
+DEFAULT_USER_AGENT = "AuthentiScore/1.0"
 
-def _get_random_headers(extra_headers: dict | None = None) -> dict:
+
+def _get_headers(extra_headers: dict | None = None) -> dict:
     headers = {
-        "User-Agent": random.choice(USER_AGENTS),
+        "User-Agent": DEFAULT_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
     }
     if extra_headers:
         headers.update(extra_headers)
     return headers
 
-def fetch_public_page(url: str, extra_headers: dict | None = None, max_retries: int = 3) -> dict:
+
+def fetch_public_page(url: str, extra_headers: dict | None = None, max_retries: int = 2) -> dict:
     """
     Fetch a public URL and return a result dict:
 
@@ -76,14 +63,13 @@ def fetch_public_page(url: str, extra_headers: dict | None = None, max_retries: 
         "error":   str | None,
     }
 
-    Makes up to `max_retries` requests with exponential backoff and rotating User-Agents.
+    Honest single request with at most one retry on timeout or 5xx (C15, D8).
     """
+    headers = _get_headers(extra_headers)
     last_error_message = "Unknown error"
     last_status_code = None
 
     for attempt in range(max_retries):
-        headers = _get_random_headers(extra_headers)
-
         try:
             with httpx.Client(
                 timeout=REQUEST_TIMEOUT,
@@ -113,32 +99,52 @@ def fetch_public_page(url: str, extra_headers: dict | None = None, max_retries: 
                 }
 
             if response.status_code == 429:
-                last_status_code = 429
-                last_error_message = "Rate limited by platform."
-                # Don't immediately fail, let it retry with a backoff
-            
-            elif response.status_code >= 400:
-                last_status_code = response.status_code
-                last_error_message = f"HTTP {response.status_code}"
-                # Could be a temporary block, let it retry
-            
-            else:
                 return {
-                    "success": True,
-                    "html": response.text,
-                    "status_code": response.status_code,
-                    "error": None,
+                    "success": False,
+                    "html": None,
+                    "status_code": 429,
+                    "error": "Rate limited by platform.",
                 }
 
-        except httpx.TimeoutException:
-            last_error_message = "Request timed out."
-        except httpx.RequestError as exc:
+            if response.status_code >= 500:
+                last_status_code = response.status_code
+                last_error_message = f"Platform server error (HTTP {response.status_code})."
+                if attempt < max_retries - 1:
+                    time.sleep(1.0)
+                    continue
+                return {
+                    "success": False,
+                    "html": None,
+                    "status_code": last_status_code,
+                    "error": last_error_message,
+                }
+
+            if response.status_code >= 400:
+                return {
+                    "success": False,
+                    "html": None,
+                    "status_code": response.status_code,
+                    "error": f"Platform returned HTTP {response.status_code}.",
+                }
+
+            return {
+                "success": True,
+                "html": response.text,
+                "status_code": response.status_code,
+                "error": None,
+            }
+
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
             last_error_message = f"Network error: {type(exc).__name__}."
-            
-        # If we reach here, the attempt failed. Wait and retry.
-        if attempt < max_retries - 1:
-            sleep_time = (2 ** attempt) + random.uniform(0.5, 1.5) # 1s, 2s, 4s approx
-            time.sleep(sleep_time)
+            if attempt < max_retries - 1:
+                time.sleep(1.0)
+                continue
+            return {
+                "success": False,
+                "html": None,
+                "status_code": None,
+                "error": last_error_message,
+            }
 
     # All retries failed
     return {
@@ -161,13 +167,13 @@ def fetch_json_endpoint(url: str, extra_headers: dict | None = None) -> dict:
         "error":   str | None,
     }
     """
-    headers = _get_random_headers(extra_headers)
+    headers = _get_headers(extra_headers)
     headers["Accept"] = "application/json, text/javascript, */*"
 
     try:
         with httpx.Client(
             timeout=REQUEST_TIMEOUT,
-            follow_redirects=False,
+            follow_redirects=True,
             headers=headers,
         ) as client:
             response = client.get(url)
@@ -301,21 +307,25 @@ def extract_embedded_json(html: str, variable_names: list[str]) -> dict:
         window._sharedData = {...};
         window.__additionalDataLoaded("...", {...});
 
+    Uses json.JSONDecoder().raw_decode (C16) so nested structures are not cut off.
     Returns the first successfully parsed JSON dict found, or {}.
     """
+    decoder = json.JSONDecoder()
     for name in variable_names:
-        # Match: <name> = {...}; or <name>("...", {...});
         patterns = [
-            rf'{re.escape(name)}\s*=\s*(\{{.*?\}});',
-            rf'{re.escape(name)}\(".*?",\s*(\{{.*?\}})\);',
+            rf'{re.escape(name)}\s*=\s*\{{',
+            rf'{re.escape(name)}\(".*?",\s*\{{',
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, html, re.DOTALL)
+            match = re.search(pattern, html)
             if match:
+                brace_idx = match.end() - 1
                 try:
-                    return json.loads(match.group(1))
-                except (json.JSONDecodeError, IndexError):
+                    obj, _ = decoder.raw_decode(html, brace_idx)
+                    if isinstance(obj, dict):
+                        return obj
+                except (json.JSONDecodeError, ValueError):
                     continue
 
     return {}

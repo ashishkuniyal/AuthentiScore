@@ -1,36 +1,36 @@
-from pathlib import Path
+"""
+AuthentiScore — ML Risk Engine
+================================
 
-import joblib
+Runs the calibrated LR+RF+XGB ensemble pipeline (v3) to predict the
+probability that a social-media profile is fake/inauthentic.
+
+The model is loaded via model_store (lazy, thread-safe). If the model
+is not yet trained, callers will receive an HTTPException 503.
+"""
+
+from __future__ import annotations
+
+import logging
+
 import pandas as pd
+from fastapi import HTTPException
 
-from app.services.feature_engine import extract_features
+from app.services.model_store import get_model, get_features, is_loaded, MODEL_VERSION
 
-
-# --------------------------------------------------
-# Paths
-# --------------------------------------------------
-
-BACKEND_DIR = Path(__file__).resolve().parents[2]
-
-MODEL_PATH = (
-    BACKEND_DIR
-    / "trained_models"
-    / "authentiscore_ensemble_v3.pkl"
-)
-
-FEATURES_PATH = (
-    BACKEND_DIR
-    / "trained_models"
-    / "authentiscore_features_v1.pkl"
-)
+logger = logging.getLogger(__name__)
 
 
-# --------------------------------------------------
-# Load model and feature list
-# --------------------------------------------------
-
-model = joblib.load(MODEL_PATH)
-FEATURES = joblib.load(FEATURES_PATH)
+def _require_model():
+    """Raise HTTP 503 when the model artefacts are not available."""
+    if not is_loaded():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Model not trained. "
+                "Run: python -m scripts.train_v3_ensemble"
+            ),
+        )
 
 
 # --------------------------------------------------
@@ -38,12 +38,29 @@ FEATURES = joblib.load(FEATURES_PATH)
 # --------------------------------------------------
 
 def calculate_ml_risk(features_dict: dict) -> float:
+    """
+    Given a features dict (with possible None values), return a 0–100
+    fake-probability score.
+
+    Parameters
+    ----------
+    features_dict : dict
+        Output of feature_engine.extract_features().  None values are
+        allowed; the model's imputer handles them.
+
+    Returns
+    -------
+    float — probability × 100, rounded to 2 dp.
+    """
+    _require_model()
+
+    model    = get_model()
+    features = get_features()
 
     X = pd.DataFrame(
-        [[features_dict.get(feature) for feature in FEATURES]],
-        columns=FEATURES
+        [[features_dict.get(f) for f in features]],
+        columns=features,
     ).astype(float)
 
     probability = model.predict_proba(X)[0][1]
-
     return round(float(probability * 100), 2)

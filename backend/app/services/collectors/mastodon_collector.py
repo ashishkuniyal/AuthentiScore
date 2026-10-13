@@ -6,7 +6,7 @@ Collects public Mastodon user data using the fully unauthenticated API.
 """
 
 from urllib.parse import urlparse
-import requests
+import httpx
 
 from app.services.collectors.base_collector import BaseCollector
 from app.services.collectors.generic_public_collector import utc_now_iso
@@ -41,7 +41,7 @@ class MastodonCollector(BaseCollector):
         
         try:
             api_url = f"https://mastodon.social/api/v1/accounts/lookup?acct={username}"
-            res = requests.get(api_url, timeout=10)
+            res = httpx.get(api_url, timeout=10.0)
             
             if res.status_code == 404:
                 return {"success": False, "error": "User not found on mastodon.social.", "url": url, "username": username}
@@ -78,9 +78,9 @@ class MastodonCollector(BaseCollector):
         
         display_name = data.get("display_name") or data.get("username")
         bio = data.get("note", "").replace("<p>", "").replace("</p>", "") # Basic HTML strip
-        followers = data.get("followers_count", 0)
-        following = data.get("following_count", 0)
-        posts = data.get("statuses_count", 0)
+        followers = data.get("followers_count")
+        following = data.get("following_count")
+        posts = data.get("statuses_count")
         has_profile_picture = 1 if "missing.png" not in data.get("avatar", "") else 0
         is_private = 1 if data.get("locked") else 0
 

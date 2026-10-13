@@ -76,98 +76,11 @@ class TwitterCollector(BaseCollector):
         except Exception:
             return False
 
-    def _collect_via_public_scraping(
-        self,
-        username: str,
-        url: str
-    ) -> dict:
-        """
-        Fallback method: fetch the public HTML of the profile page and
-        extract the embedded JSON state using regex.
-        """
-        import re
-        import json
-
-        try:
-            # Delegate to our robust, generic public page fetcher which handles retries and user-agents
-            result = fetch_public_page(url)
-            
-            if not result.get("success"):
-                return {
-                    "success": False,
-                    "platform": "twitter",
-                    "url": url,
-                    "username": username,
-                    "collection_source": "public_scraping",
-                    "error": result.get("error", "Unknown scraping error")
-                }
-
-            html = result["html"]
-
-            # Simple regex extractors targeting Twitter's embedded initial state
-            followers_match = re.search(r'followers:(\d+)', html)
-            following_match = re.search(r'following:(\d+)', html)
-            description_match = re.search(r'description:"([^"]+)"', html)
-            name_match = re.search(r'name:"([^"]+)"', html)
-
-            # Posts count can be under several keys depending on the page variant
-            posts_match = (
-                re.search(r'tweets:(\d+)', html) or
-                re.search(r'statuses_count:(\d+)', html) or 
-                re.search(r'post_count:(\d+)', html) or
-                re.search(r'tweets_count":(\d+)', html)
-            )
-
-            if not followers_match:
-                return {
-                    "success": False,
-                    "platform": "twitter",
-                    "url": url,
-                    "username": username,
-                    "collection_source": "public_scraping",
-                    "error": "Could not locate profile data in public HTML."
-                }
-
-            followers = int(followers_match.group(1)) if followers_match else None
-            following = int(following_match.group(1)) if following_match else None
-            posts = int(posts_match.group(1)) if posts_match else None
-            bio = description_match.group(1) if description_match else None
-            
-            # Extract deeper fields like Account Creation Date
-            created_at_match = re.search(r'created_at:"([^"]+)"', html)
-            joined_date = created_at_match.group(1) if created_at_match else None
-
-            return {
-                "success": True,
-                "platform": "twitter",
-                "url": url,
-                "username": username,
-                "display_name": name_match.group(1) if name_match else None,
-                "bio": bio,
-                "followers": followers,
-                "following": following,
-                "posts": posts,
-                "has_profile_picture": True,
-                "is_private": False,
-                "joined_date": joined_date,
-                "collection_source": "public_scraping",
-                "collected_at": datetime.now(timezone.utc).isoformat(),
-                "fields_collected": ["username", "display_name", "bio", "followers", "following", "posts", "joined_date"],
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "platform": "twitter",
-                "url": url,
-                "username": username,
-                "collection_source": "public_scraping",
-                "error": f"Scraping parse error: {str(e)}"
-            }
-
     def collect(self, url: str) -> dict:
         """
         Main collection entry point.
-        Attempts official API first (if token exists), falls back to public scraping.
+        Uses official Twitter API v2 when TWITTER_BEARER_TOKEN is set.
+        Without a token, Twitter requires authentication and returns failed.
         """
         username = self._extract_username(url)
 
@@ -178,31 +91,22 @@ class TwitterCollector(BaseCollector):
                 "collection_status": "failed",
                 "error": "Could not extract username from URL.",
                 "username": None,
+                "success": False,
             }
 
         bearer_token = unquote(os.getenv("TWITTER_BEARER_TOKEN", "").strip())
+        if not bearer_token:
+            return {
+                "platform": "twitter",
+                "url": url,
+                "username": username,
+                "collection_source": "none",
+                "collection_status": "failed",
+                "success": False,
+                "error": "Twitter/X requires authentication. Set TWITTER_BEARER_TOKEN in .env.",
+            }
 
-        # 1. Try official API first
-        if bearer_token:
-            api_result = self._collect_via_api(username, bearer_token, url)
-            
-            # If API succeeds, return immediately
-            if api_result.get("success") is True:
-                return api_result
-            
-            # If API fails (e.g. HTTP 401, 429), fall back to scraping
-            scrape_result = self._collect_via_public_scraping(username, url)
-            
-            # If scraping also fails, return the original API failure 
-            # to show the correct API error in diagnostic logs,
-            # but if scraping succeeds, return the scraped data.
-            if scrape_result.get("success") is True:
-                return scrape_result
-                
-            return api_result
-
-        # 2. No token provided -> go straight to public scraping
-        return self._collect_via_public_scraping(username, url)
+        return self._collect_via_api(username, bearer_token, url)
 
     def normalize(self, raw: dict) -> dict:
         username = raw.get("username")

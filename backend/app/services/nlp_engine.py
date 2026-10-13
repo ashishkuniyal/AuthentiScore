@@ -4,39 +4,31 @@ AuthentiScore — Hybrid NLP Engine
 
 Combines two complementary NLP approaches into a single hybrid risk signal:
 
-    1. Keyword / Pattern NLP  (existing, preserved unchanged)
+    1. Keyword / Pattern NLP
        Rule-based regex matching against known suspicious phrases.
        Fast, deterministic, zero external dependencies.
 
-    2. Semantic NLP  (new)
-       Sentence-embedding cosine similarity against reference descriptions
-       of suspicious categories (financial scam, urgency, giveaway, etc.)
-       using sentence-transformers/all-MiniLM-L6-v2.
-       Catches rephrased and novel suspicious language missed by exact keywords.
+    2. Semantic NLP
+       Bio text is classified by a lightweight SMS-spam BERT model
+       (mrm8488/bert-tiny-finetuned-sms-spam-detection).
+       NOTE: This model was trained on SMS messages, not social-media bios;
+       results are indicative. See README "Limitations".
 
 Hybrid Weighting
 ----------------
     hybrid_nlp_risk = (keyword_risk × KEYWORD_WEIGHT)
                     + (semantic_risk × SEMANTIC_WEIGHT)
 
-Default weights:
-    KEYWORD_WEIGHT  = 0.40   (40 %)
-    SEMANTIC_WEIGHT = 0.60   (60 %)
-
-Rationale for 40/60 split:
-  - Semantic embeddings generalise better and are the primary innovation.
-  - Keywords still provide high-precision recall for exact known phrases
-    that may be semantically diluted in short bios.
-  - The 60 % weight reflects that semantic similarity is the richer signal
-    for novel or rephrased suspicious content.
-
-Both weights are module-level constants — change them here to adjust the
-balance without touching any other part of the codebase.
+Limitations
+-----------
+    - Broad keywords (free, win, cash, invest) and the +25 negative-sentiment
+      boost may produce false positives on legitimate bios. Flagged for owner
+      review (D10 in CHANGES.md).
 """
 
 import re
 import logging
-from transformers import pipeline  # type: ignore
+from typing import Optional
 
 from app.services.semantic_nlp_engine import calculate_semantic_nlp_risk
 
@@ -57,20 +49,31 @@ SEMANTIC_WEIGHT: float = 0.60   # 60 % — semantic embedding risk contribution
 # Transformer Sentiment Model (existing, preserved)
 # ==============================================================
 
-# Lazy-loaded on first request to avoid startup cost
+# Lazy-loaded on first use; failure is cached (C25)
 _nlp_pipeline = None
+_nlp_load_failed: bool = False
 
 
-def get_nlp_pipeline():
-    global _nlp_pipeline
-    if _nlp_pipeline is None:
-        logger.info("Loading Transformer NLP model...")
-        # Lightweight sentiment model to detect toxic/negative/spammy tone
+def get_nlp_pipeline() -> Optional[object]:
+    """Return the DistilBERT sentiment pipeline, or None when unavailable."""
+    global _nlp_pipeline, _nlp_load_failed
+    if _nlp_load_failed:
+        return None
+    if _nlp_pipeline is not None:
+        return _nlp_pipeline
+    try:
+        from transformers import pipeline  # type: ignore  # lazy import (B3)
+        logger.info("Loading DistilBERT sentiment model...")
         _nlp_pipeline = pipeline(
             "sentiment-analysis",
             model="distilbert-base-uncased-finetuned-sst-2-english",
         )
-    return _nlp_pipeline
+        logger.info("DistilBERT sentiment model loaded.")
+        return _nlp_pipeline
+    except Exception as exc:
+        logger.warning("DistilBERT model unavailable (cached failure): %s", exc)
+        _nlp_load_failed = True
+        return None
 
 
 # ==============================================================
@@ -155,43 +158,44 @@ def detect_risk_patterns(text: str):
 
 def _calculate_keyword_risk(text: str) -> tuple[float, list]:
     """
-    Calculate keyword-based NLP risk using regex pattern matching
-    and the DistilBERT sentiment booster (existing logic, unchanged).
+    Calculate keyword-based NLP risk.
 
-    Returns
-    -------
-    (keyword_risk_score: float, matches: list)
+    C26 fix: each category is counted only once (max weight per category),
+    so "free free free" does not triple the promotional score.
+
+    Returns (keyword_risk_score: float, matches: list)
     """
     if not text or not str(text).strip():
         return 0.0, []
 
     matches = detect_risk_patterns(text)
-    regex_score = 0.0
 
+    # Count each category once (C26)
+    seen_categories: set = set()
+    regex_score = 0.0
     for match in matches:
         category = match["category"]
-        regex_score += CATEGORY_WEIGHTS.get(category, 0)
+        if category not in seen_categories:
+            regex_score += CATEGORY_WEIGHTS.get(category, 0)
+            seen_categories.add(category)
 
-    # Transformer sentiment boost (existing logic, preserved)
-    try:
-        classifier = get_nlp_pipeline()
-        truncated = str(text)[:500]
-        result = classifier(truncated)[0]
-
-        if result["label"] == "NEGATIVE" and result["score"] > 0.8:
-            transformer_boost = 25
-            matches.append({
-                "category": "ai_sentiment_flag",
-                "matched_text": f"NEGATIVE ({result['score']:.2f})",
-            })
-        elif result["label"] == "POSITIVE" and result["score"] > 0.9:
-            transformer_boost = -10
-        else:
-            transformer_boost = 0
-
-    except Exception as exc:
-        logger.error("Transformer NLP failed: %s", exc)
-        transformer_boost = 0
+    # Transformer sentiment boost (lazy; skipped when model unavailable)
+    transformer_boost = 0
+    classifier = get_nlp_pipeline()
+    if classifier is not None:
+        try:
+            truncated = str(text)[:500]
+            result = classifier(truncated)[0]
+            if result["label"] == "NEGATIVE" and result["score"] > 0.8:
+                transformer_boost = 25
+                matches.append({
+                    "category": "ai_sentiment_flag",
+                    "matched_text": f"NEGATIVE ({result['score']:.2f})",
+                })
+            elif result["label"] == "POSITIVE" and result["score"] > 0.9:
+                transformer_boost = -10
+        except Exception as exc:
+            logger.error("Transformer NLP failed: %s", exc)
 
     keyword_risk = float(max(0, min(regex_score + transformer_boost, 100)))
     return keyword_risk, matches
