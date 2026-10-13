@@ -89,7 +89,7 @@ def verify_token_string(token: str) -> dict:
     Shared by HTTP dependency and WebSocket handshake (S1, S5).
     """
     try:
-        decoded_token = auth.verify_id_token(token)
+        decoded_token = auth.verify_id_token(token, clock_skew_seconds=60)
     except Exception as exc:
         logger.warning("Firebase token verification failed: %s", exc)
         raise HTTPException(
