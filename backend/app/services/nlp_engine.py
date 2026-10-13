@@ -130,20 +130,59 @@ CATEGORY_WEIGHTS = {
 
 
 # ==============================================================
-# Keyword Detection (existing, preserved)
+# ==============================================================
+# Context Rules & Whitelists (A5)
 # ==============================================================
 
-def detect_risk_patterns(text: str):
-    """Detect known suspicious keyword patterns in bio text."""
+BENIGN_WHITELIST_PHRASES = [
+    r"\bgiveaway bot\b",
+    r"\bfree software\b",
+    r"\bopen source\b",
+    r"\bwin-win\b",
+    r"\bfree to play\b",
+]
+
+NEGATION_PATTERNS = [
+    r"\bno scams?\b",
+    r"\banti-scams?\b",
+    r"\breport scammers?\b",
+    r"\bavoid scams?\b",
+    r"\bscam alert\b",
+    r"\bstop scammers?\b",
+    r"\bnot a scam\b",
+    r"\bnot for sale\b",
+]
+
+
+# ==============================================================
+# Keyword Detection (A5 with context rules & negation checks)
+# ==============================================================
+
+def detect_risk_patterns(text: str) -> list[dict]:
+    """
+    Detect known suspicious keyword patterns in bio text.
+    Applies context rules:
+      - Ignores whitelisted benign phrases ('giveaway bot', 'open source', etc.)
+      - Ignores negated phrases ('no scams', 'anti-scam', 'report scammers')
+    """
     if not text:
-        text = ""
+        return []
 
-    text = str(text).lower()
+    text_lower = str(text).lower()
+
+    # Mask whitelisted benign phrases so sub-words (e.g. 'free', 'giveaway') don't falsely fire
+    sanitized = text_lower
+    for w_pat in BENIGN_WHITELIST_PHRASES:
+        sanitized = re.sub(w_pat, " __benign__ ", sanitized)
+
+    # Mask negated phrases so words like 'scam' don't fire on anti-scam educators
+    for neg_pat in NEGATION_PATTERNS:
+        sanitized = re.sub(neg_pat, " __negated__ ", sanitized)
+
     matches = []
-
     for category, patterns in RISK_PATTERNS.items():
         for pattern in patterns:
-            found = re.findall(pattern, text)
+            found = re.findall(pattern, sanitized)
             for match in found:
                 matches.append({
                     "category": category,
@@ -153,51 +192,54 @@ def detect_risk_patterns(text: str):
 
 
 # ==============================================================
-# Keyword NLP Score (existing, preserved)
+# Keyword NLP Score (A5: no +25 sentiment boost, multi-signal required)
 # ==============================================================
 
 def _calculate_keyword_risk(text: str) -> tuple[float, list]:
     """
     Calculate keyword-based NLP risk.
-
-    C26 fix: each category is counted only once (max weight per category),
-    so "free free free" does not triple the promotional score.
-
-    Returns (keyword_risk_score: float, matches: list)
+    - Each category is counted only once (max weight per category).
+    - Requires at least two independent category signals before reaching high scam tiers.
+    - Decision S3: Removed unconditional +25 negative sentiment boost.
     """
     if not text or not str(text).strip():
         return 0.0, []
 
     matches = detect_risk_patterns(text)
 
-    # Count each category once (C26)
-    seen_categories: set = set()
-    regex_score = 0.0
+    # Count each category once
+    seen_categories: set[str] = set()
+    category_score = 0.0
     for match in matches:
         category = match["category"]
         if category not in seen_categories:
-            regex_score += CATEGORY_WEIGHTS.get(category, 0)
+            category_score += CATEGORY_WEIGHTS.get(category, 0)
             seen_categories.add(category)
 
-    # Transformer sentiment boost (lazy; skipped when model unavailable)
-    transformer_boost = 0
-    classifier = get_nlp_pipeline()
-    if classifier is not None:
-        try:
-            truncated = str(text)[:500]
-            result = classifier(truncated)[0]
-            if result["label"] == "NEGATIVE" and result["score"] > 0.8:
-                transformer_boost = 25
-                matches.append({
-                    "category": "ai_sentiment_flag",
-                    "matched_text": f"NEGATIVE ({result['score']:.2f})",
-                })
-            elif result["label"] == "POSITIVE" and result["score"] > 0.9:
-                transformer_boost = -10
-        except Exception as exc:
-            logger.error("Transformer NLP failed: %s", exc)
+    # Single isolated signal attenuation: e.g. only 'promotional' word in utility account
+    if len(seen_categories) == 1:
+        # Attenuate single isolated keyword trigger to avoid false positives on utility bots
+        category_score = min(category_score, 15.0)
 
-    keyword_risk = float(max(0, min(regex_score + transformer_boost, 100)))
+    # Decision S3: Tone is not spam. Removed +25 negative boost and -10 positive bonus.
+    # Transformer sentiment adds at most +5 if multiple suspicious categories were already matched.
+    transformer_boost = 0
+    if len(seen_categories) >= 2:
+        classifier = get_nlp_pipeline()
+        if classifier is not None:
+            try:
+                truncated = str(text)[:500]
+                result = classifier(truncated)[0]
+                if result["label"] == "NEGATIVE" and result["score"] > 0.85:
+                    transformer_boost = 5
+                    matches.append({
+                        "category": "ai_sentiment_flag",
+                        "matched_text": f"NEGATIVE ({result['score']:.2f})",
+                    })
+            except Exception as exc:
+                logger.error("Transformer NLP check failed: %s", exc)
+
+    keyword_risk = float(max(0, min(category_score + transformer_boost, 100)))
     return keyword_risk, matches
 
 
@@ -207,59 +249,50 @@ def _calculate_keyword_risk(text: str) -> tuple[float, list]:
 
 def calculate_nlp_rule_score(text: str) -> dict:
     """
-    Compute the hybrid NLP risk score combining keyword and semantic signals.
-
-    This is the function called by the existing risk pipeline in scan.py.
-    The return dict is a superset of the old format — all existing keys
-    are preserved, new keys are added:
-
-        score               (existing) — hybrid_nlp_risk (float 0–100)
-        matches             (existing) — keyword matches list
-        keyword_risk        (new)      — raw keyword+sentiment score
-        semantic_risk       (new)      — raw semantic similarity score
-        hybrid_nlp_risk     (new)      — weighted combination
-        semantic_details    (new)      — full semantic result dict
-        nlp_model_name      (new)      — sentence-transformer model ID
-        nlp_model_version   (new)      — version string
-
-    Note: `score` equals `hybrid_nlp_risk` so existing consumers that only
-    read `result["score"]` continue to work without modification.
+    Compute hybrid NLP risk combining keyword context rules and semantic model.
+    Dynamically adjusts weights if the semantic model is inapplicable.
     """
-
-    # ── 1. Keyword + sentiment risk (existing) ───────────────────────────────
+    # ── 1. Keyword + sentiment risk ───────────────────────────────
     keyword_risk, matches = _calculate_keyword_risk(text or "")
 
-    # ── 2. Semantic risk (new) ────────────────────────────────────────────────
+    # ── 2. Semantic risk ──────────────────────────────────────────
     semantic_result = calculate_semantic_nlp_risk(text or "")
-    semantic_risk   = semantic_result["semantic_risk"]
+    semantic_risk   = semantic_result.get("semantic_risk", 0.0)
+    semantic_applicable = bool(semantic_result.get("model_applicable", True))
 
-    # ── 3. Hybrid combination ─────────────────────────────────────────────────
-    hybrid_nlp_risk = round(
-        min(
-            (keyword_risk  * KEYWORD_WEIGHT)
-            + (semantic_risk * SEMANTIC_WEIGHT),
-            100.0,
-        ),
-        2,
-    )
+    # ── 3. Hybrid combination (A5) ────────────────────────────────
+    if not semantic_applicable:
+        eff_kw_weight = 1.0
+        eff_sem_weight = 0.0
+        hybrid_nlp_risk = round(keyword_risk, 2)
+        nlp_method = "keyword_rules_only (semantic inapplicable)"
+    else:
+        eff_kw_weight = KEYWORD_WEIGHT
+        eff_sem_weight = SEMANTIC_WEIGHT
+        hybrid_nlp_risk = round(
+            min(
+                (keyword_risk  * eff_kw_weight)
+                + (semantic_risk * eff_sem_weight),
+                100.0,
+            ),
+            2,
+        )
+        nlp_method = "calibrated_context_hybrid"
 
-    # ── 4. Return ─────────────────────────────────────────────────────────────
+    # ── 4. Return (Additive fields) ──────────────────────────────
     return {
-        # ------ Existing keys (preserved — backward compatible) ------
-        "score":   hybrid_nlp_risk,    # used by risk_engine.py
-        "matches": matches,            # used by scan.py for matched_phrases
+        # Preserved existing keys
+        "score":   hybrid_nlp_risk,
+        "matches": matches,
 
-        # ------ New keys ------
+        # Additive metadata
         "keyword_risk":      round(keyword_risk,  2),
         "semantic_risk":     round(semantic_risk, 2),
         "hybrid_nlp_risk":   hybrid_nlp_risk,
         "semantic_details":  semantic_result,
-
-        # Model metadata
         "nlp_model_name":    semantic_result.get("model_name", ""),
         "nlp_model_version": semantic_result.get("model_version", ""),
-
-        # Weighting config (for explainability / audit trail)
-        "keyword_weight":    KEYWORD_WEIGHT,
-        "semantic_weight":   SEMANTIC_WEIGHT,
+        "keyword_weight":    eff_kw_weight,
+        "semantic_weight":   eff_sem_weight,
+        "method":            nlp_method,
     }

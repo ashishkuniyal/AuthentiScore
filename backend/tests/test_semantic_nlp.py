@@ -343,3 +343,36 @@ def test_hybrid_semantic_details_present():
     assert "semantic_risk" in details
     assert "matched_categories" in details
     assert "explanation" in details
+
+
+# ===========================================================================
+# A5 False Positive Reduction Tests
+# ===========================================================================
+
+def test_semantic_short_bio_not_applicable():
+    """Bio < 15 characters should have model_applicable=False."""
+    result = calculate_semantic_nlp_risk("Short bio")
+    assert result["model_applicable"] is False
+    assert result["semantic_risk"] == 0.0
+
+
+def test_semantic_non_english_not_applicable():
+    """Non-English bio should have model_applicable=False."""
+    result = calculate_semantic_nlp_risk(BIOS["unicode_arabic"], bio_language="ar")
+    assert result["model_applicable"] is False
+    assert result["semantic_risk"] == 0.0
+
+
+def test_nlp_negation_masking():
+    """Bio with 'anti-scam' or 'no scam' should not trigger false positive scam alerts."""
+    res_negated = calculate_nlp_rule_score("Official community account: report scammers here, no scam tolerated.")
+    # Should not treat as financial scam
+    categories = [m["category"] for m in res_negated["matches"]]
+    assert "Financial / Crypto Scams" not in categories
+
+
+def test_nlp_benign_whitelist():
+    """Bio with 'free software' should not trigger free/giveaway scam flags."""
+    res = calculate_nlp_rule_score("Open source developer building free software tools.")
+    assert res["score"] < 25.0
+
