@@ -34,8 +34,9 @@ jobs:
           TRANSFORMERS_OFFLINE: "1"
           HF_DATASETS_OFFLINE: "1"
           REQUIRE_EMAIL_VERIFICATION: "false"
+          PYTHONUNBUFFERED: "1"
         run: |
-          pytest -q
+          python -m pytest -v --tb=short
 
   frontend:
     name: Frontend Lint & Build

@@ -4,6 +4,5 @@
 # ─────────────────────────────────────────────────────────────
 
 pytest==8.3.5
-pytest-anyio==0.0.0
 mongomock==4.3.0
 httpx==0.28.1   # also used by TestClient

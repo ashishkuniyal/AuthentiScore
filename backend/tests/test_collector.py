@@ -492,10 +492,18 @@ class TestDispatcher(unittest.TestCase):
         self.assertGreater(features["follower_following_ratio"], 0)
 
     # Instagram dispatcher — collector called correctly
+    @patch("app.services.collectors.instaloader_collector.InstaLoaderCollector.run")
     @patch(
         "app.services.collectors.instagram_collector.fetch_json_endpoint"
     )
-    def test_dispatcher_routes_instagram(self, mock_fetch):
+    def test_dispatcher_routes_instagram(self, mock_fetch, mock_instaloader_run):
+        mock_instaloader_run.return_value = {
+            "collection_status": "failed",
+            "platform": "instagram",
+            "identifier": "testuser",
+            "error": "Instaloader rate limit 429",
+            "fields_collected": []
+        }
         mock_fetch.return_value = {
             "success": False,
             "status_code": 400,

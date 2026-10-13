@@ -164,3 +164,16 @@ def hermetic_env(monkeypatch, tiny_trained_pipeline):
     monkeypatch.setattr(nlp_mod, "_nlp_pipeline", None)
     monkeypatch.setattr(nlp_mod, "_nlp_load_failed", True)
     monkeypatch.setattr(nlp_mod, "get_nlp_pipeline", lambda: None)
+
+    # 4. Hermetic collector mocks (M3 — zero network calls)
+    import app.services.collectors.instaloader_collector as insta_mod
+    def mock_instaloader_run(self, url):
+        return {
+            "collection_status": "failed",
+            "collection_source": "none",
+            "platform": "instagram",
+            "identifier": "mock_user",
+            "error": "Instaloader offline mock",
+            "fields_collected": []
+        }
+    monkeypatch.setattr(insta_mod.InstaLoaderCollector, "run", mock_instaloader_run)
