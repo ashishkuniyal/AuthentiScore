@@ -58,6 +58,12 @@ class ScanResponse(BaseModel):
     rule_signals: Optional[list] = Field(None, description="Heuristic profile rules")
     network_signals: Optional[dict] = Field(default=None, description="Signals from Network Graph Analysis")
     image_signals: Optional[dict] = Field(default=None, description="Signals from Image Forensics")
+    confidence: Optional[Dict[str, Any]] = Field(default=None, description="Confidence level, value, and explanations")
+    abstain: Optional[bool] = Field(default=False, description="Whether scanner abstained from conclusive verdict")
+    model_applicable: Optional[bool] = Field(default=True, description="Whether ML model is applicable to this domain")
+    account_type: Optional[str] = Field(default="uncertain", description="likely_fake | likely_real | automated_declared | uncertain")
+    reasons: Optional[List[Dict[str, Any]]] = Field(default=None, description="Unified top explanatory factors")
+
 
 
 # ==================================================
@@ -132,6 +138,11 @@ class ProfileScanResponse(BaseModel):
     rule_signals: Optional[List[Dict[str, Any]]] = None
     network_signals: Optional[Dict[str, Any]] = None
     image_signals: Optional[Dict[str, Any]] = None
+    confidence: Optional[Dict[str, Any]] = None
+    abstain: Optional[bool] = False
+    model_applicable: Optional[bool] = True
+    account_type: Optional[str] = "uncertain"
+    reasons: Optional[List[Dict[str, Any]]] = None
 
 # ==================================================
 # Complete Profile Scan Response
@@ -168,6 +179,11 @@ class CompleteProfileScanResponse(BaseModel):
     rule_signals: Optional[List[Dict[str, Any]]] = None
     network_signals: Optional[Dict[str, Any]] = None
     image_signals: Optional[Dict[str, Any]] = None
+    confidence: Optional[Dict[str, Any]] = None
+    abstain: Optional[bool] = False
+    model_applicable: Optional[bool] = True
+    account_type: Optional[str] = "uncertain"
+    reasons: Optional[List[Dict[str, Any]]] = None
 
 
 # ==================================================
@@ -184,6 +200,7 @@ class AutoScanRequest(BaseModel):
     """
 
     profile_url: HttpUrl
+    consent: Optional[bool] = True
 
 
 # ==================================================
@@ -266,6 +283,26 @@ class AutoScanResponse(BaseModel):
     rule_signals: Optional[List[Dict[str, Any]]] = None
     network_signals: Optional[Dict[str, Any]] = None
     image_signals: Optional[Dict[str, Any]] = None
+    confidence: Optional[Dict[str, Any]] = None
+    abstain: Optional[bool] = False
+    model_applicable: Optional[bool] = True
+    account_type: Optional[str] = "uncertain"
+    reasons: Optional[List[Dict[str, Any]]] = None
+    from_cache: Optional[bool] = False
+
+    # -- Collection audit --
+    collection: CollectionMetadata
+
+
+# ==================================================
+# Scan Feedback Request
+# ==================================================
+
+class ScanFeedbackRequest(BaseModel):
+    user_verdict: str  # "real" | "fake" | "bot"
+    comment: Optional[str] = None
+    rating: Optional[int] = None
+
 
     # -- Collection audit --
     collection: CollectionMetadata

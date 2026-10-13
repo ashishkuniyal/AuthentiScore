@@ -13,6 +13,7 @@ from app.models.schemas import (
     CompleteProfileScanResponse,
     AutoScanRequest,
     AutoScanResponse,
+    ScanFeedbackRequest,
 )
 from app.services.ml_engine import calculate_ml_risk
 from app.services.collector import (
@@ -35,6 +36,13 @@ from app.services.network_engine import analyze_network
 from app.services.image_engine import analyze_avatar
 from app.services.model_store import MODEL_NAME, MODEL_VERSION
 from app.core.ws import notify_user_threadsafe
+from app.services.score_composer import (
+    is_automation_declared,
+    calculate_scan_confidence,
+    determine_account_type,
+    build_unified_reasons,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +102,13 @@ def run_risk_pipeline(
 
     if not (has_required and len(observed_present) >= MIN_OBSERVED):
         # Insufficient Data path
+        confidence = calculate_scan_confidence(
+            profile_data,
+            data_completeness=data_completeness,
+            ml_risk=None,
+            nlp_insufficient=True,
+            platform=platform,
+        )
         return {
             "features": features,
             "final_score": None,
@@ -102,6 +117,11 @@ def run_risk_pipeline(
             "missing_features": missing_observed,
             "field_sources": field_sources,
             "platform_coverage": platform_coverage,
+            "confidence": confidence,
+            "abstain": True,
+            "model_applicable": False,
+            "account_type": "uncertain",
+            "reasons": [],
             "score_breakdown": None,
             "risk_components": None,
             "top_ml_factors": None,
@@ -174,9 +194,24 @@ def run_risk_pipeline(
         image_result = None
 
     # --------------------------------------------------
-    # 6. Classification
+    # 6. Classification & Declared Bot Handling (A7)
     # --------------------------------------------------
-    classification = classify_risk(final_score)
+    is_declared = is_automation_declared(profile_data, effective_bio)
+    if is_declared:
+        classification = "Automated (Declared)"
+        account_type = "automated_declared"
+    else:
+        classification = classify_risk(final_score)
+        account_type = determine_account_type(final_score, is_declared_bot=False, abstain=False)
+
+    confidence = calculate_scan_confidence(
+        profile_data,
+        data_completeness=data_completeness,
+        ml_risk=ml_risk,
+        nlp_insufficient=nlp_insufficient,
+        platform=platform,
+    )
+    model_applicable = (platform in ("", "instagram")) and (data_completeness >= 0.5)
 
     # --------------------------------------------------
     # 7. SHAP Explanation
@@ -192,8 +227,26 @@ def run_risk_pipeline(
     matched_semantic_cats = semantic_details.get("matched_categories", [])
     semantic_explanation = semantic_details.get("explanation", "")
 
+    nlp_signals_dict = {
+        "nlp_risk": nlp_risk,
+        "nlp_insufficient": nlp_insufficient,
+        "matched_categories": matched_keyword_categories,
+        "matched_phrases": matched_phrases,
+        "keyword_risk": nlp_result.get("keyword_risk", 0.0),
+        "semantic_risk": nlp_result.get("semantic_risk", 0.0),
+        "hybrid_nlp_risk": nlp_result.get("hybrid_nlp_risk", nlp_risk),
+        "matched_semantic_categories": matched_semantic_cats,
+        "semantic_explanation": semantic_explanation,
+        "nlp_model_name": nlp_result.get("nlp_model_name", ""),
+    }
+
     # --------------------------------------------------
-    # 9. Final Result
+    # 9. Unified Reasons (A8)
+    # --------------------------------------------------
+    reasons = build_unified_reasons(top_ml_factors, rule_result["signals"], nlp_signals_dict)
+
+    # --------------------------------------------------
+    # 10. Final Result
     # --------------------------------------------------
     return {
         "features": features,
@@ -203,6 +256,11 @@ def run_risk_pipeline(
         "missing_features": missing_observed,
         "field_sources": field_sources,
         "platform_coverage": platform_coverage,
+        "confidence": confidence,
+        "abstain": False,
+        "model_applicable": model_applicable,
+        "account_type": account_type,
+        "reasons": reasons,
         "score_breakdown": score_breakdown,
         "risk_components": {
             "ml_risk": ml_risk,
@@ -210,18 +268,7 @@ def run_risk_pipeline(
             "rule_risk": rule_risk,
         },
         "top_ml_factors": top_ml_factors,
-        "nlp_signals": {
-            "nlp_risk": nlp_risk,
-            "nlp_insufficient": nlp_insufficient,
-            "matched_categories": matched_keyword_categories,
-            "matched_phrases": matched_phrases,
-            "keyword_risk": nlp_result.get("keyword_risk", 0.0),
-            "semantic_risk": nlp_result.get("semantic_risk", 0.0),
-            "hybrid_nlp_risk": nlp_result.get("hybrid_nlp_risk", nlp_risk),
-            "matched_semantic_categories": matched_semantic_cats,
-            "semantic_explanation": semantic_explanation,
-            "nlp_model_name": nlp_result.get("nlp_model_name", ""),
-        },
+        "nlp_signals": nlp_signals_dict,
         "rule_signals": rule_result["signals"],
         "network_signals": network_result,
         "image_signals": image_result,
@@ -525,3 +572,82 @@ def download_pdf_report(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="authentiscore_report_{scan_id}.pdf"'}
     )
+
+
+# ==================================================
+# 10. Scan Feedback (A9)
+# ==================================================
+
+@router.post("/{scan_id}/feedback")
+def submit_scan_feedback(
+    scan_id: str,
+    feedback: ScanFeedbackRequest,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Submit user feedback on a scan result ('real', 'fake', 'bot').
+    Used for evaluation monitoring and retraining datasets.
+    """
+    scan_data = scans_collection.find_one({"scan_id": scan_id})
+    if not scan_data:
+        raise HTTPException(status_code=404, detail="Scan not found.")
+
+    feedback_doc = {
+        "feedback_id": str(uuid.uuid4()),
+        "scan_id": scan_id,
+        "user_id": str(current_user["_id"]),
+        "username": scan_data.get("username", "unknown"),
+        "platform": scan_data.get("platform", "unknown"),
+        "user_verdict": feedback.user_verdict.lower().strip(),
+        "system_score": scan_data.get("final_score"),
+        "system_classification": scan_data.get("classification"),
+        "comment": feedback.comment,
+        "rating": feedback.rating,
+        "features": scan_data.get("features", {}),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        if hasattr(db, "scan_feedback"):
+            db.scan_feedback.insert_one(feedback_doc)
+    except Exception as exc:
+        logger.warning("Could not persist feedback to MongoDB: %s", exc)
+
+    return {
+        "status": "success",
+        "message": "Feedback recorded successfully",
+        "feedback_id": feedback_doc["feedback_id"]
+    }
+
+
+# ==================================================
+# 11. Scan Deletion / GDPR Compliance (B8)
+# ==================================================
+
+@router.delete("/{scan_id}")
+def delete_scan(
+    scan_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Delete a scan and associated user data for GDPR/privacy compliance (B8).
+    """
+    user_id_str = str(current_user["_id"])
+    query = {"scan_id": scan_id, "user_id": user_id_str}
+    
+    scan_doc = scans_collection.find_one(query)
+    if not scan_doc:
+        raise HTTPException(status_code=404, detail="Scan not found or not owned by user.")
+
+    try:
+        scans_collection.delete_one(query)
+        if hasattr(db, "scan_feedback"):
+            db.scan_feedback.delete_many({"scan_id": scan_id, "user_id": user_id_str})
+    except Exception as exc:
+        logger.warning("Error deleting scan %s: %s", scan_id, exc)
+
+    return {
+        "status": "deleted",
+        "scan_id": scan_id,
+        "message": "Scan and associated data successfully deleted."
+    }
