@@ -310,3 +310,13 @@ class ScanJobRequest(BaseModel):
     consent: bool = False
     force_refresh: Optional[bool] = False
 
+
+class ManualCompletionRequest(BaseModel):
+    followers: Optional[float] = None
+    following: Optional[float] = None
+    posts: Optional[float] = None
+    bio: Optional[str] = None
+    has_profile_picture: Optional[int] = None
+    is_private: Optional[int] = None
+
+

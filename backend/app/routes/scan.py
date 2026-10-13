@@ -15,7 +15,9 @@ from app.models.schemas import (
     AutoScanResponse,
     ScanFeedbackRequest,
     ScanJobRequest,
+    ManualCompletionRequest,
 )
+
 from app.services.url_normalizer import normalize_profile_input
 from app.services.scan_manager import (
     create_scan_job,
@@ -747,4 +749,69 @@ def delete_scan(
         "status": "deleted",
         "scan_id": scan_id,
         "message": "Scan and associated data successfully deleted."
+    }
+
+
+# ==================================================
+# 12. Manual Scan Completion / Overrides (B5)
+# ==================================================
+
+@router.post("/{scan_id}/complete")
+def manually_complete_scan(
+    scan_id: str,
+    override: ManualCompletionRequest,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Allow user to manually complete missing fields or supply overrides for a scan (B5).
+    Re-runs scoring and marks supplied fields as 'user_provided' provenance.
+    """
+    user_id_str = str(current_user["_id"])
+    query = {"scan_id": scan_id, "user_id": user_id_str}
+    scan_doc = scans_collection.find_one(query)
+    if not scan_doc:
+        raise HTTPException(status_code=404, detail="Scan not found or not owned by user.")
+
+    profile_data = scan_doc.get("profile", {}) or {}
+    for field in ("followers", "following", "posts", "has_profile_picture", "is_private"):
+        val = getattr(override, field)
+        if val is not None:
+            profile_data[field] = val
+    if override.bio is not None:
+        profile_data["bio"] = override.bio
+
+    field_sources = scan_doc.get("field_sources", {}) or {}
+    for field in ("followers", "following", "posts", "has_profile_picture", "is_private"):
+        if getattr(override, field) is not None:
+            field_sources[field] = "user_provided"
+
+    features = extract_features(profile_data)
+    bio = profile_data.get("bio", "")
+    new_result = run_risk_pipeline(profile_data, bio=bio)
+    new_result["field_sources"] = {**new_result.get("field_sources", {}), **field_sources}
+
+    update_data = {
+        "features": features,
+        "profile": profile_data,
+        "final_score": new_result.get("final_score"),
+        "classification": new_result.get("classification"),
+        "confidence": new_result.get("confidence"),
+        "account_type": new_result.get("account_type"),
+        "reasons": new_result.get("reasons"),
+        "score_breakdown": new_result.get("score_breakdown"),
+        "risk_components": new_result.get("risk_components"),
+        "top_ml_factors": new_result.get("top_ml_factors"),
+        "nlp_signals": new_result.get("nlp_signals"),
+        "rule_signals": new_result.get("rule_signals"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    scans_collection.update_one(query, {"$set": update_data})
+
+    return {
+        "scan_id": scan_id,
+        "platform": scan_doc.get("platform"),
+        "username": scan_doc.get("username"),
+        "profile_url": scan_doc.get("profile_url"),
+        "features": features,
+        **new_result,
     }

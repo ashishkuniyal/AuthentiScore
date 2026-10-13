@@ -25,6 +25,8 @@ preserved unchanged so that all existing endpoints continue
 to work without modification.
 """
 
+import logging
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from app.services.collectors.instaloader_collector import InstaLoaderCollector
@@ -33,6 +35,63 @@ from app.services.collectors.twitter_collector import TwitterCollector
 from app.services.collectors.youtube_collector import YouTubeCollector
 from app.services.collectors.github_collector import GitHubCollector
 from app.services.collectors.mastodon_collector import MastodonCollector
+from app.services.circuit_breaker import get_circuit_breaker
+
+logger = logging.getLogger(__name__)
+
+CORE_PROVENANCE_FIELDS = [
+    "username", "followers", "following", "posts", "bio",
+    "has_profile_picture", "is_private", "display_name"
+]
+
+
+def classify_error_taxonomy(err_msg: str | None) -> str:
+    """Classify error into standard taxonomy (B4)."""
+    if not err_msg:
+        return "none"
+    low = err_msg.lower()
+    if "429" in low or "rate limit" in low or "too many requests" in low:
+        return "rate_limited"
+    if "challenge" in low or "checkpoint" in low or "bot" in low or "403" in low or "login_required" in low:
+        return "anti_bot_challenge"
+    if "404" in low or "not found" in low or "does not exist" in low:
+        return "account_not_found"
+    if "suspend" in low or "deactivated" in low:
+        return "account_suspended"
+    if "timeout" in low or "timed out" in low:
+        return "network_timeout"
+    return "parse_error"
+
+
+def build_provenance_and_verification(profile: dict) -> dict:
+    """Attach field-level provenance and calculate 'Data verified' status (B4, S8)."""
+    source = profile.get("collection_source", "none")
+    timestamp = profile.get("collected_at") or datetime.now(timezone.utc).isoformat()
+    fields_collected = profile.get("fields_collected", [])
+
+    provenance = {}
+    direct_core_count = 0
+    is_direct_source = source in {"official_api", "permitted_public_page", "apify", "instaloader"}
+
+    for f in fields_collected:
+        conf = 1.0 if is_direct_source else 0.8
+        provenance[f] = {
+            "source": source,
+            "timestamp": timestamp,
+            "confidence": conf,
+        }
+        if f in CORE_PROVENANCE_FIELDS and is_direct_source:
+            direct_core_count += 1
+
+    # Decision S8: >= 6 of 8 core fields obtained directly from official source
+    data_verified = direct_core_count >= 6
+    error_taxonomy = classify_error_taxonomy(profile.get("error"))
+
+    profile["provenance"] = provenance
+    profile["data_verified"] = data_verified
+    profile["error_taxonomy"] = error_taxonomy
+    return profile
+
 
 # ==============================================================
 # Supported Platforms
@@ -203,9 +262,20 @@ def collect_profile(profile_url: str) -> dict:
     best_profile = None
 
     for collector in candidates:
+        cb_name = type(collector).__name__.lower()
+        cb = get_circuit_breaker(cb_name)
+        if not cb.can_execute():
+            logger.warning("Circuit breaker %s is OPEN; skipping attempt.", cb_name)
+            continue
+
         try:
             profile = collector.run(profile_url)
+            if profile.get("collection_status") in ("success", "partial") and len(profile.get("fields_collected", [])) > 0:
+                cb.record_success()
+            else:
+                cb.record_failure()
         except Exception as exc:
+            cb.record_failure()
             profile = {
                 "collection_status":   "failed",
                 "collection_source":   "none",
@@ -250,6 +320,7 @@ def collect_profile(profile_url: str) -> dict:
     # Ensure profile_url is always populated
     if profile:
         profile.setdefault("profile_url", profile_url)
+        profile = build_provenance_and_verification(profile)
 
     return profile
 
@@ -276,7 +347,7 @@ def create_manual_profile(
     collection_source is "user_provided" for full auditability.
     """
 
-    return {
+    res = {
         "collection_status":   "success",
         "collection_source":   "user_provided",
 
@@ -302,6 +373,8 @@ def create_manual_profile(
 
         "error": None,
     }
+    return build_provenance_and_verification(res)
+
 
 
 # ==============================================================
