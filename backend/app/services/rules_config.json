@@ -1,0 +1,78 @@
+{
+  "empty_bio": {
+    "name": "Empty biography",
+    "weight": 10,
+    "direction": "raises",
+    "enabled": true,
+    "description": "Profile has no biography"
+  },
+  "no_profile_picture": {
+    "name": "No profile picture",
+    "weight": 15,
+    "direction": "raises",
+    "enabled": true,
+    "description": "Profile has no profile picture"
+  },
+  "high_username_digit_ratio": {
+    "name": "High username digit ratio",
+    "weight": 15,
+    "direction": "raises",
+    "threshold": 0.5,
+    "enabled": true,
+    "description": "Username contains a high proportion of digits"
+  },
+  "very_low_followers": {
+    "name": "Very low follower count",
+    "weight": 10,
+    "direction": "raises",
+    "threshold": 10,
+    "enabled": true,
+    "description": "Profile has very few followers"
+  },
+  "high_following_ratio": {
+    "name": "High following/follower imbalance",
+    "weight": 15,
+    "direction": "raises",
+    "threshold": 10.0,
+    "enabled": true,
+    "description": "Following count is much higher than follower count"
+  },
+  "high_velocity": {
+    "name": "Abnormal activity velocity",
+    "weight": 15,
+    "direction": "raises",
+    "posts_per_day_threshold": 10.0,
+    "following_per_day_threshold": 50.0,
+    "enabled": true,
+    "description": "Account activity rate (posts/day or following/day) is abnormally high"
+  },
+  "shortener_in_bio": {
+    "name": "URL shortener in bio",
+    "weight": 10,
+    "direction": "raises",
+    "enabled": true,
+    "description": "Biography contains obfuscated short-link"
+  },
+  "verified_account": {
+    "name": "Platform verified badge",
+    "weight": -20,
+    "direction": "lowers",
+    "enabled": true,
+    "description": "Account is verified by platform"
+  },
+  "aged_account": {
+    "name": "Established account age",
+    "weight": -10,
+    "direction": "lowers",
+    "age_days_threshold": 730,
+    "enabled": true,
+    "description": "Account is established and older than 2 years"
+  },
+  "automation_declared": {
+    "name": "Self-declared automated account",
+    "weight": 0,
+    "direction": "neutral",
+    "enabled": true,
+    "description": "Account explicitly identifies as automated or bot"
+  }
+}

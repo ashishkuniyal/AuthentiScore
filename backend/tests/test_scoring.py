@@ -219,3 +219,68 @@ def test_full_profile_scores_normally():
     assert result["final_score"] is not None
     assert result["data_completeness"] >= 5/9
     assert result["risk_components"] is not None
+
+
+# ──────────────────────────────────────────────────────────────
+# A6 Rule Engine Tests
+# ──────────────────────────────────────────────────────────────
+
+def test_followers_zero_following_positive_ratio_gap():
+    profile = {"followers": 0, "following": 50}
+    result = calculate_profile_rule_risk(profile)
+    sigs = {s["rule"]: s for s in result["signals"]}
+    assert "high_following_ratio" in sigs
+    assert sigs["high_following_ratio"]["status"] == "fail"
+    assert sigs["high_following_ratio"]["weight"] == 15
+    assert "Following accounts while having 0 followers" in sigs["high_following_ratio"]["message"]
+
+
+def test_high_velocity_rule():
+    profile = {"posts_per_day": 15.0, "following_per_day": 2.0}
+    result = calculate_profile_rule_risk(profile)
+    sigs = {s["rule"]: s for s in result["signals"]}
+    assert "high_velocity" in sigs
+    assert sigs["high_velocity"]["status"] == "fail"
+    assert sigs["high_velocity"]["weight"] == 15
+
+
+def test_shortener_in_bio_rule():
+    profile = {"link_shortener_in_bio": 1}
+    result = calculate_profile_rule_risk(profile)
+    sigs = {s["rule"]: s for s in result["signals"]}
+    assert "shortener_in_bio" in sigs
+    assert sigs["shortener_in_bio"]["status"] == "fail"
+    assert sigs["shortener_in_bio"]["weight"] == 10
+
+
+def test_trust_rules_lower_risk():
+    # Base risk profile
+    profile_base = {
+        "bio_length": 0,       # +10
+        "has_profile_picture": 0, # +15
+    }
+    res_base = calculate_profile_rule_risk(profile_base)
+    assert res_base["profile_rule_risk"] == 25
+
+    # With verified and aged account trust rules
+    profile_trusted = {
+        "bio_length": 0,       # +10
+        "has_profile_picture": 0, # +15
+        "is_verified": 1,      # -20
+        "account_age_days": 800, # -10
+    }
+    res_trusted = calculate_profile_rule_risk(profile_trusted)
+    # 25 - 20 - 10 = -5, clamped to 0
+    assert res_trusted["profile_rule_risk"] == 0
+    sigs = {s["rule"]: s for s in res_trusted["signals"]}
+    assert sigs["verified_account"]["direction"] == "lowers"
+    assert sigs["aged_account"]["direction"] == "lowers"
+
+
+def test_declared_automation_rule():
+    profile = {"automation_declared": 1}
+    result = calculate_profile_rule_risk(profile)
+    sigs = {s["rule"]: s for s in result["signals"]}
+    assert "automation_declared" in sigs
+    assert sigs["automation_declared"]["direction"] == "neutral"
+
