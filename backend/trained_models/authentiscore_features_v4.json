@@ -1,0 +1,26 @@
+{
+  "schema_version": "v4",
+  "features": [
+    "followers",
+    "following",
+    "posts",
+    "bio_length",
+    "has_profile_picture",
+    "is_private",
+    "username_digit_ratio",
+    "follower_following_ratio",
+    "profile_completeness"
+  ],
+  "extended_features": [
+    "followers",
+    "following",
+    "posts",
+    "bio_length",
+    "has_profile_picture",
+    "is_private",
+    "username_digit_ratio",
+    "follower_following_ratio",
+    "profile_completeness"
+  ],
+  "optimal_threshold": 0.7505310098507374
+}

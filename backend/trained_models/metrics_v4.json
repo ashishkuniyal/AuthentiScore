@@ -1,0 +1,26 @@
+{
+  "model_name": "CalibratedEnsemble_LR_RF_XGB",
+  "model_version": "v4",
+  "schema_version": "v4",
+  "trained_at": "2026-10-13T20:45:16.524882+00:00",
+  "library_versions": {
+    "sklearn": "1.9.1",
+    "xgboost": "3.4.1",
+    "joblib": "1.6.0"
+  },
+  "dataset_hashes": {
+    "train_csv_sha256": "54adc145282c4bbd",
+    "test_csv_sha256": "4d09fc192c9f9736"
+  },
+  "validation_metrics": {
+    "optimal_threshold": 0.7505,
+    "f1": 0.9173,
+    "precision": 0.9683,
+    "recall": 0.8714,
+    "roc_auc": 0.972,
+    "pr_auc": 0.9747,
+    "brier_score": 0.0647,
+    "precision_at_90_recall": 0.9265,
+    "recall_at_90_precision": 0.9
+  }
+}
