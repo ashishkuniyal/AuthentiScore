@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, EmailStr
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -29,15 +29,23 @@ class UserResponse(UserBase):
     notifications: Optional[Dict[str, Any]] = None
 
 class UserProfileUpdate(BaseModel):
-    firstName: Optional[str] = None
-    lastName: Optional[str] = None
-    username: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    jobTitle: Optional[str] = None
-    company: Optional[str] = None
-    bio: Optional[str] = None
-    avatar: Optional[str] = None
+    """S3: Profile update schema. Email cannot be changed here."""
+    firstName: Optional[str] = Field(None, max_length=80)
+    lastName: Optional[str] = Field(None, max_length=80)
+    username: Optional[str] = Field(None, min_length=2, max_length=50)
+    phone: Optional[str] = Field(None, max_length=30)
+    jobTitle: Optional[str] = Field(None, max_length=80)
+    company: Optional[str] = Field(None, max_length=80)
+    bio: Optional[str] = Field(None, max_length=500)
+    avatar: Optional[str] = Field(None, max_length=2048)
+
+    @field_validator("avatar")
+    @classmethod
+    def validate_avatar_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v != "":
+            if not v.startswith("https://"):
+                raise ValueError("Avatar must be an https:// URL")
+        return v
 
 class UserPreferencesUpdate(BaseModel):
     appearance: Optional[str] = None

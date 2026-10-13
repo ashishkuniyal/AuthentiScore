@@ -7,43 +7,17 @@ from typing import Optional, List, Dict, Any
 # ==================================================
 
 class ProfileData(BaseModel):
-
+    username: Optional[str] = Field(None, max_length=64)
+    bio: Optional[str] = Field(None, max_length=2000)
     followers: Optional[float] = Field(ge=0, default=None)
-
     following: Optional[float] = Field(ge=0, default=None)
-
     posts: Optional[float] = Field(ge=0, default=None)
-
     bio_length: Optional[float] = Field(ge=0, default=None)
-
-    has_profile_picture: Optional[int] = Field(
-        ge=0,
-        le=1,
-        default=None
-    )
-
-    is_private: Optional[int] = Field(
-        ge=0,
-        le=1,
-        default=None
-    )
-
-    username_digit_ratio: Optional[float] = Field(
-        ge=0,
-        le=1,
-        default=None
-    )
-
-    follower_following_ratio: Optional[float] = Field(
-        ge=0,
-        default=None
-    )
-
-    profile_completeness: Optional[float] = Field(
-        ge=0,
-        le=1,
-        default=None
-    )
+    has_profile_picture: Optional[int] = Field(ge=0, le=1, default=None)
+    is_private: Optional[int] = Field(ge=0, le=1, default=None)
+    username_digit_ratio: Optional[float] = Field(ge=0, le=1, default=None)
+    follower_following_ratio: Optional[float] = Field(ge=0, default=None)
+    profile_completeness: Optional[float] = Field(ge=0, le=1, default=None)
 
 
 # ==================================================
@@ -51,10 +25,9 @@ class ProfileData(BaseModel):
 # ==================================================
 
 class ScanRequest(BaseModel):
-
     profile: ProfileData
-
     bio: Optional[str] = ""
+    username: Optional[str] = None
 
 
 # ==================================================
@@ -62,11 +35,8 @@ class ScanRequest(BaseModel):
 # ==================================================
 
 class RiskComponents(BaseModel):
-
     ml_risk: float
-
     nlp_risk: float
-
     rule_risk: float
 
 
@@ -75,8 +45,8 @@ class RiskComponents(BaseModel):
 # ==================================================
 
 class ScanResponse(BaseModel):
-    final_score: Optional[float] = Field(None, description="Unified risk score between 0 and 1, or None if Insufficient Data")
-    classification: str = Field(..., description="High, Medium, Low Risk, or Insufficient Data")
+    final_score: Optional[float] = Field(None, description="Unified risk score between 0 and 100, or None if Insufficient Data")
+    classification: str = Field(..., description="Low Risk, Medium Risk, High Risk, Very High Risk, or Insufficient Data")
     data_completeness: Optional[float] = Field(None, description="Ratio of present features")
     missing_features: Optional[List[str]] = Field(None, description="List of missing feature names")
     field_sources: Optional[Dict[str, str]] = Field(None, description="Sources of individual fields")
@@ -95,9 +65,7 @@ class ScanResponse(BaseModel):
 # ==================================================
 
 class ProfileURLRequest(BaseModel):
-
     profile_url: HttpUrl
-
     bio: Optional[str] = ""
 
 
@@ -106,37 +74,21 @@ class ProfileURLRequest(BaseModel):
 # ==================================================
 
 class CollectedProfile(BaseModel):
-
     platform: str
-
     profile_url: str
-
     username: Optional[str] = None
-
     followers: Optional[float] = None
-
     following: Optional[float] = None
-
     posts: Optional[float] = None
-
     bio: Optional[str] = None
-
     bio_length: Optional[float] = None
-
     has_profile_picture: Optional[int] = None
-
     is_private: Optional[int] = None
-
     username_digit_ratio: Optional[float] = None
-
     follower_following_ratio: Optional[float] = None
-
     profile_completeness: Optional[float] = None
-
     collection_status: str = "success"
-
     collection_source: str = "unknown"
-
     error: Optional[str] = None
 
 
@@ -145,36 +97,15 @@ class CollectedProfile(BaseModel):
 # ==================================================
 
 class ManualProfileRequest(BaseModel):
-
     platform: str
-
     profile_url: HttpUrl
-
-    username: str
-
-    followers: float = Field(
-        ge=0
-    )
-
-    following: float = Field(
-        ge=0
-    )
-
-    posts: float = Field(
-        ge=0
-    )
-
-    bio: str = ""
-
-    has_profile_picture: int = Field(
-        ge=0,
-        le=1
-    )
-
-    is_private: int = Field(
-        ge=0,
-        le=1
-    )
+    username: str = Field(..., min_length=1, max_length=64)
+    followers: float = Field(ge=0)
+    following: float = Field(ge=0)
+    posts: float = Field(ge=0)
+    bio: str = Field("", max_length=2000)
+    has_profile_picture: int = Field(ge=0, le=1)
+    is_private: int = Field(ge=0, le=1)
 
 class ProfileScanResponse(BaseModel):
 

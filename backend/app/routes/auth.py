@@ -1,116 +1,207 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from typing import Optional
-from datetime import datetime, timezone
-import firebase_admin
-from firebase_admin import auth, credentials
-from bson import ObjectId
+"""
+AuthentiScore — Authentication Router & Dependencies
+=====================================================
 
-from app.database.mongodb import users_collection, db
+Implements:
+  - S1: Strict Firebase ID token verification (no signature bypass)
+  - S2: Admin privilege check via ADMIN_EMAILS allowlist
+  - C30: Upsert / unique handling and lastLogin 10m update throttling
+  - C36: Clean imports
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import firebase_admin
+from firebase_admin import auth
+from pymongo.errors import DuplicateKeyError
+
+from app.database.mongodb import db, users_collection
 from app.models.user_schemas import UserResponse
 
-# Initialize Firebase Admin if not already initialized
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────
+# Firebase Admin Initialization (S1)
+# ─────────────────────────────────────────────────────────────
+
 try:
     firebase_admin.get_app()
 except ValueError:
-    firebase_admin.initialize_app(options={'projectId': 'authentiscore-1443f'})
+    project_id = os.getenv("FIREBASE_PROJECT_ID", "authentiscore-1443f")
+    firebase_admin.initialize_app(options={"projectId": project_id})
 
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+security_bearer = HTTPBearer(auto_error=False)
 
-def log_activity(user_id: str, action: str, details: str = None):
-    db["activity_logs"].insert_one({
-        "user_id": user_id,
-        "action": action,
-        "timestamp": datetime.now(timezone.utc),
-        "details": details
-    })
 
-import os
-import jwt
-
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+def log_activity(user_id: str, action: str, details: Optional[str] = None) -> None:
     try:
-        # If no Google credentials, we are in local dev. Use fast local decode.
-        if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-            try:
-                decoded_token = jwt.decode(token, options={"verify_signature": False}, algorithms=["RS256", "HS256"])
-            except Exception as jwt_e:
-                print(f"jwt.decode failed with: {jwt_e}")
-                raise jwt_e
-        else:
-            try:
-                decoded_token = auth.verify_id_token(token)
-            except Exception as firebase_e:
-                print(f"verify_id_token failed with: {firebase_e}")
-                # Fallback just in case
-                decoded_token = jwt.decode(token, options={"verify_signature": False}, algorithms=["RS256", "HS256"])
-            
-        email = decoded_token.get("email")
-        if not email:
-            raise credentials_exception
-            
-        # Look up user in MongoDB
+        db["activity_logs"].insert_one({
+            "user_id": user_id,
+            "action": action,
+            "timestamp": datetime.now(timezone.utc),
+            "details": details,
+        })
+    except Exception as exc:
+        logger.warning("Could not log activity for user=%s: %s", user_id, exc)
+
+
+def _determine_role_and_plan(email: str, decoded_token: dict) -> tuple[str, str]:
+    """
+    S2: Default role=User, plan=Free.
+    Administrator granted only to exact-match case-insensitive allowlist in ADMIN_EMAILS,
+    and only when email_verified is true.
+    """
+    admin_emails_raw = os.getenv("ADMIN_EMAILS", "")
+    admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
+    email_verified = decoded_token.get("email_verified", False)
+
+    if email.lower() in admin_emails and email_verified:
+        return "Administrator", "Pro"
+
+    return "User", "Free"
+
+
+def verify_token_string(token: str) -> dict:
+    """
+    Verify a Firebase ID token string and return or create the MongoDB user document.
+    Shared by HTTP dependency and WebSocket handshake (S1, S5).
+    """
+    try:
+        decoded_token = auth.verify_id_token(token)
+    except Exception as exc:
+        logger.warning("Firebase token verification failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    email = decoded_token.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing email claim",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # S1 / DECISION D2: Require email_verified for password sign-ups
+    provider = decoded_token.get("firebase", {}).get("sign_in_provider", "")
+    email_verified = decoded_token.get("email_verified", False)
+    if provider == "password" and not email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email address must be verified before signing in.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # MongoDB lookup / creation
+    try:
         user_doc = users_collection.find_one({"email": email})
-        
-        if not user_doc:
-            # Create new user
-            name_parts = decoded_token.get("name", "").split(" ")
-            first_name = name_parts[0] if name_parts else email.split("@")[0]
-            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-            
-            now = datetime.now(timezone.utc)
-            new_user = {
-                "email": email,
-                "firstName": first_name,
-                "lastName": last_name,
-                "username": email.split("@")[0],
-                "role": "Administrator" if email == "admin@example.com" or "admin" in email else "User",
-                "plan": "Pro" if "admin" in email else "Free",
-                "accountStatus": "Active",
-                "createdAt": now,
-                "updatedAt": now,
-                "lastLogin": now,
-                "avatar": decoded_token.get("picture", ""),
-                "preferences": {
-                    "appearance": "Dark",
-                    "dashboard_view": "Overview",
-                    "analytics_period": "30"
-                },
-                "notifications": {
-                    "scan_completed": True,
-                    "security_alerts": True
-                }
-            }
+    except Exception as exc:
+        logger.error("MongoDB error during user lookup: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database service unavailable",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    if not user_doc:
+        name_parts = decoded_token.get("name", "").split(" ")
+        first_name = name_parts[0] if name_parts else email.split("@")[0]
+        last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+        role, plan = _determine_role_and_plan(email, decoded_token)
+
+        new_user = {
+            "email": email,
+            "firstName": first_name,
+            "lastName": last_name,
+            "username": email.split("@")[0],
+            "role": role,
+            "plan": plan,
+            "accountStatus": "Active",
+            "createdAt": now,
+            "updatedAt": now,
+            "lastLogin": now,
+            "avatar": decoded_token.get("picture", ""),
+            "preferences": {
+                "appearance": "Dark",
+                "dashboard_view": "Overview",
+                "analytics_period": "30",
+            },
+            "notifications": {
+                "scan_completed": True,
+                "security_alerts": True,
+            },
+        }
+
+        try:
             res = users_collection.insert_one(new_user)
             new_user["_id"] = res.inserted_id
             user_doc = new_user
             log_activity(str(res.inserted_id), "Account created")
-        else:
-            # Update lastLogin
-            users_collection.update_one(
-                {"_id": user_doc["_id"]},
-                {"$set": {"lastLogin": datetime.now(timezone.utc)}}
+        except DuplicateKeyError:
+            # Race condition on concurrent first requests
+            user_doc = users_collection.find_one({"email": email})
+        except Exception as exc:
+            logger.error("MongoDB error during user creation: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database service unavailable",
             )
-            # We do NOT log "Logged in" every single time we verify token since token is sent on every request.
-            # Usually we'd track actual login via a different flow, but for now we'll just update lastLogin.
-            
-        user_doc["id"] = str(user_doc["_id"])
-        return user_doc
-    except Exception as e:
-        print(f"Token verification failed: {e}")
-        raise credentials_exception
+    else:
+        # C30: Update lastLogin only if older than 10 minutes
+        last_login = user_doc.get("lastLogin")
+        should_update = False
+        if not last_login:
+            should_update = True
+        else:
+            if last_login.tzinfo is None:
+                last_login = last_login.replace(tzinfo=timezone.utc)
+            if (now - last_login).total_seconds() > 600:
+                should_update = True
 
-async def get_current_active_user(current_user: dict = Depends(get_current_user)):
+        if should_update:
+            try:
+                users_collection.update_one(
+                    {"_id": user_doc["_id"]},
+                    {"$set": {"lastLogin": now}},
+                )
+            except Exception as exc:
+                logger.warning("Could not update lastLogin: %s", exc)
+
+    user_doc["id"] = str(user_doc["_id"])
+    return user_doc
+
+
+def get_current_user(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+) -> dict:
+    if not creds or not creds.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return verify_token_string(creds.credentials)
+
+
+async def get_current_active_user(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     if current_user.get("accountStatus") != "Active":
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise HTTPException(status_code=400, detail="Inactive user account")
     return current_user
 
+
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: dict = Depends(get_current_active_user)):
+def read_users_me(current_user: dict = Depends(get_current_active_user)):
     return current_user
