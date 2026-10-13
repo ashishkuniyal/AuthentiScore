@@ -1,5 +1,5 @@
 // ScannerPage.jsx — Automated URL-driven scan (primary flow) + manual fallback
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import ResultsPanel from "./ResultsPanel";
 import {
     autoScan,
@@ -250,14 +250,24 @@ function ManualFallbackForm({ profile, platform, onUpdate, onSubmit, onCancel, l
                 ))}
                 <div>
                     <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>Profile Picture</label>
-                    <select value={profile.has_profile_picture ?? 1} onChange={e => onUpdate("has_profile_picture", Number(e.target.value))} className="input-field">
+                    <select 
+                        value={profile.has_profile_picture ?? ""} 
+                        onChange={e => onUpdate("has_profile_picture", e.target.value === "" ? null : Number(e.target.value))} 
+                        className="input-field"
+                    >
+                        <option value="">Select status...</option>
                         <option value={1}>Available</option>
                         <option value={0}>Missing</option>
                     </select>
                 </div>
                 <div>
                     <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>Account Privacy</label>
-                    <select value={profile.is_private ?? 0} onChange={e => onUpdate("is_private", Number(e.target.value))} className="input-field">
+                    <select 
+                        value={profile.is_private ?? ""} 
+                        onChange={e => onUpdate("is_private", e.target.value === "" ? null : Number(e.target.value))} 
+                        className="input-field"
+                    >
+                        <option value="">Select status...</option>
                         <option value={0}>Public</option>
                         <option value={1}>Private</option>
                     </select>
@@ -279,10 +289,15 @@ function ManualFallbackForm({ profile, platform, onUpdate, onSubmit, onCancel, l
 
             <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 24, flexWrap: "wrap", borderTop: "1px solid var(--border-inner)", paddingTop: 20 }}>
                 <button className="btn-ghost" onClick={onCancel} disabled={loading} style={{ background: "var(--border-inner)" }}>Cancel</button>
-                <button className="btn-primary" onClick={onSubmit} disabled={loading || !profile.username?.trim()}>
+                <button 
+                    className="btn-primary" 
+                    onClick={onSubmit} 
+                    disabled={loading || !profile.username?.trim() || profile.has_profile_picture === null || profile.has_profile_picture === undefined || profile.is_private === null || profile.is_private === undefined}
+                >
                     {loading ? "Analysing…" : "Run Analysis →"}
                 </button>
             </div>
+
         </div>
     );
 }
@@ -306,42 +321,10 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
     const [showManual,    setShowManual]    = useState(false);
     const [manualProfile, setManualProfile] = useState({
         platform: "", profile_url: "", username: "",
-        followers: 0, following: 0, posts: 0,
-        bio: "", has_profile_picture: 1, is_private: 0,
+        followers: "", following: "", posts: "",
+        bio: "", has_profile_picture: null, is_private: null,
     });
     const resultsRef = useRef(null);
-
-    // Auto-trigger scan if global search query is passed
-    useEffect(() => {
-        if (initialSearchQuery) {
-            let scanUrl = initialSearchQuery;
-            if (!scanUrl.startsWith("http")) {
-                scanUrl = `https://instagram.com/${scanUrl.replace('@', '')}`;
-            }
-            setProfileUrl(scanUrl);
-            setScanConsent(true);
-            onClearSearch();
-            // Need to wrap in setTimeout because handleScan checks profileUrl state,
-            // but we can just pass the url directly if we adjust handleScan.
-            // Actually, we'll just trigger it directly here to bypass state latency.
-            handleScan(scanUrl, true);
-        }
-    }, [initialSearchQuery]);
-
-    // Provide default static logs, then prepend real ones
-    const staticLogs = [
-        { time: "Just now", action: "NLP Weights synced" },
-        { time: "2m ago", action: "System boot sequence" }
-    ];
-    const liveLogs = notifications.map(n => ({
-        time: "Just now", action: n.message
-    }));
-    const auditLogs = [...liveLogs, ...staticLogs].slice(0, 5);
-
-
-    function updateManual(field, value) {
-        setManualProfile(p => ({ ...p, [field]: value }));
-    }
 
     // Animate through pipeline steps with a brief pause each
     async function step(n) {
@@ -353,7 +336,7 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
     // Primary: Automated scan
     // ----------------------------------------------------------
 
-    async function handleScan(directUrl = null, directConsent = null) {
+    const handleScan = useCallback(async (directUrl = null, directConsent = null) => {
         const isUrlString = typeof directUrl === 'string';
         const checkConsent = (directConsent !== null && typeof directConsent === 'boolean') ? directConsent : scanConsent;
         const url = (isUrlString && directUrl) ? directUrl.trim() : profileUrl.trim();
@@ -373,8 +356,6 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
 
         try {
             // Run animation and API call concurrently.
-            // The animation ensures the user sees progress;
-            // the real request resolves when the backend finishes.
             const [scan] = await Promise.all([
                 autoScan(url),
                 animateSteps(),
@@ -394,24 +375,54 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                     platform,
                     profile_url:         url,
                     username:            scan?.username || "",
-                    followers:           scan?.features?.followers ?? 0,
-                    following:           scan?.features?.following ?? 0,
-                    posts:               scan?.features?.posts ?? 0,
+                    followers:           scan?.features?.followers ?? "",
+                    following:           scan?.features?.following ?? "",
+                    posts:               scan?.features?.posts ?? "",
                     bio:                 scan?.collected_bio || "",
-                    has_profile_picture: scan?.features?.has_profile_picture ?? 1,
-                    is_private:          scan?.features?.is_private ?? 0,
+                    has_profile_picture: scan?.features?.has_profile_picture ?? null,
+                    is_private:          scan?.features?.is_private ?? null,
                 });
                 setShowManual(true);
             }
 
         } catch (err) {
-            // Backend returned an error (e.g., unsupported platform, network issue)
             setError(err.message || "Unable to process this profile URL.");
         } finally {
             setLoading(false);
             setActiveStep(-1);
         }
+    }, [profileUrl, scanConsent]);
+
+    // Auto-trigger scan if global search query is passed
+    useEffect(() => {
+        if (!initialSearchQuery) return;
+        let scanUrl = initialSearchQuery;
+        if (!scanUrl.startsWith("http")) {
+            scanUrl = `https://instagram.com/${scanUrl.replace('@', '')}`;
+        }
+        const timer = setTimeout(() => {
+            setProfileUrl(scanUrl);
+            setScanConsent(true);
+            onClearSearch();
+            handleScan(scanUrl, true);
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [initialSearchQuery, onClearSearch, handleScan]);
+
+    // Provide default static logs, then prepend real ones
+    const staticLogs = [
+        { time: "Just now", action: "NLP Weights synced" },
+        { time: "2m ago", action: "System boot sequence" }
+    ];
+    const liveLogs = notifications.map(n => ({
+        time: "Just now", action: n.message
+    }));
+    const auditLogs = [...liveLogs, ...staticLogs].slice(0, 5);
+
+    function updateManual(field, value) {
+        setManualProfile(p => ({ ...p, [field]: value }));
     }
+
 
     // ----------------------------------------------------------
     // Fallback: Manual scan

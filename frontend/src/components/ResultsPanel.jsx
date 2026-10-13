@@ -4,11 +4,10 @@ import { useState } from "react";
 import {
     Flag, ShieldCheck, ShieldAlert, AlertTriangle, CheckCircle2,
     XCircle, Info, Users, UserCheck, FileText, ImageIcon, Lock,
-    ExternalLink, Download, Bot, Activity, Zap, Target,
+    ExternalLink, Download, Bot, Zap, Target,
 } from "lucide-react";
 import RiskGauge from "./RiskGauge";
-
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { downloadReportPdf } from "../services/api";
 
 // ─────────────────────────────────────────────────────────────
 // Utilities
@@ -21,21 +20,6 @@ function fmtNum(v) {
     return Number(v).toLocaleString();
 }
 
-function getRiskColor(score) {
-    const s = clamp(score);
-    if (s < 34)  return { text: "#10b981", bg: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.3)"  };
-    if (s < 67)  return { text: "#f59e0b", bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.3)"  };
-    if (s < 90)  return { text: "#f97316", bg: "rgba(249,115,22,0.12)",  border: "rgba(249,115,22,0.3)"  };
-    return           { text: "#ef4444", bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.3)"   };
-}
-
-function getRiskLabel(score) {
-    const s = clamp(score);
-    if (s < 34) return "Low Risk";
-    if (s < 67) return "Medium Risk";
-    if (s < 90) return "High Risk";
-    return "Very High Risk";
-}
 
 /** Detect self-declared automation in the bio. */
 function isDeclaredBot(bio = "") {
@@ -139,8 +123,6 @@ function ExecutiveSummary({ result }) {
     const sigUsed    = breakdown.signals_used ?? 3;
     const nlpInsuff  = breakdown.nlp_insufficient ?? false;
     const botDeclared = isDeclaredBot(bio);
-    const riskColor  = getRiskColor(score);
-    const riskLabel  = getRiskLabel(score);
 
     // Verdict sentence
     let verdict = "";
@@ -212,6 +194,17 @@ function ExecutiveSummary({ result }) {
                                 }}>
                                     <Bot size={12} />
                                     Automated (declared)
+                                </span>
+                            )}
+                            {result?.simulated && (
+                                <span style={{
+                                    display: "inline-flex", alignItems: "center", gap: 5,
+                                    padding: "2px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+                                    background: "rgba(245,158,11,0.12)", color: "var(--risk-med)",
+                                    border: "1px solid rgba(245,158,11,0.25)",
+                                }}>
+                                    <AlertTriangle size={12} />
+                                    Simulated demo data
                                 </span>
                             )}
                         </div>
@@ -526,15 +519,17 @@ function PdfDownload({ scanId }) {
         setLoading(true);
         setError(null);
         try {
-            const resp = await fetch(`${API_BASE_URL}/scan/${scanId}/report.pdf`);
-            if (!resp.ok) throw new Error(`Server returned ${resp.status}.`);
-            const blob = await resp.blob();
+            const blob = await downloadReportPdf(scanId);
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement("a");
             a.href     = url;
             a.download = `authentiscore_report_${scanId}.pdf`;
+            document.body.appendChild(a);
             a.click();
-            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 1000);
         } catch (err) {
             setError(err.message || "Download failed. Please try again.");
         } finally {

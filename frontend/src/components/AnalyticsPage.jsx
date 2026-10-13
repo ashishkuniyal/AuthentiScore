@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { getAnalyticsSummary } from "../services/api";
 
 function getRiskColor(score) {
     const s = Number(score ?? 0);
-    if (s < 30) return "var(--risk-low)";
-    if (s < 60) return "var(--risk-med)";
-    if (s < 80) return "var(--risk-high)";
+    if (s < 34) return "var(--risk-low)";
+    if (s < 67) return "var(--risk-med)";
+    if (s < 90) return "var(--risk-high)";
     return "var(--risk-vhigh)";
 }
+
 
 function StatCard({ label, value, unit, color, sub, icon }) {
     return (
@@ -223,17 +224,35 @@ export default function AnalyticsPage() {
     const [error,   setError]   = useState("");
     const [days,    setDays]    = useState("all");
 
-    async function load() {
-        setLoading(true); setError("");
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError("");
         try { 
             const daysParam = days === "all" ? null : parseInt(days);
             setData(await getAnalyticsSummary(daysParam)); 
         }
         catch (err) { setError(err.message || "Unable to load analytics."); }
         finally { setLoading(false); }
-    }
+    }, [days]);
 
-    useEffect(() => { load(); }, [days]);
+    useEffect(() => {
+        let isCancelled = false;
+        async function fetchAnalytics() {
+            try { 
+                const daysParam = days === "all" ? null : parseInt(days);
+                const res = await getAnalyticsSummary(daysParam);
+                if (!isCancelled) setData(res);
+            }
+            catch (err) { 
+                if (!isCancelled) setError(err.message || "Unable to load analytics."); 
+            }
+            finally { 
+                if (!isCancelled) setLoading(false); 
+            }
+        }
+        fetchAnalytics();
+        return () => { isCancelled = true; };
+    }, [days]);
 
     if (loading && !data) {
         return (
@@ -257,8 +276,6 @@ export default function AnalyticsPage() {
 
     const total    = Number(data?.total_scans ?? 0);
     const avgScore = Number(data?.average_risk_score ?? 0);
-    const maxScore = Number(data?.highest_risk_score ?? 0);
-    const minScore = Number(data?.lowest_risk_score ?? 0);
     const classCounts = data?.classification_counts ?? {};
     const platforms   = data?.platform_counts ?? {};
     const riskComp    = data?.average_risk_components ?? {};
@@ -269,11 +286,12 @@ export default function AnalyticsPage() {
     const maxPlatform = Math.max(...Object.values(platforms).map(Number), 1);
 
     const classRows = [
-        { key: "low",       label: "Low Risk",      range: "0–29",   color: "var(--risk-low)" },
-        { key: "medium",    label: "Medium Risk",    range: "30–59",  color: "var(--risk-med)" },
-        { key: "high",      label: "High Risk",      range: "60–79",  color: "var(--risk-high)" },
-        { key: "very_high", label: "Very High Risk", range: "80–100", color: "var(--risk-vhigh)" },
+        { key: "low",       label: "Low Risk",      range: "< 34",   color: "var(--risk-low)" },
+        { key: "medium",    label: "Medium Risk",    range: "34–66",  color: "var(--risk-med)" },
+        { key: "high",      label: "High Risk",      range: "67–89",  color: "var(--risk-high)" },
+        { key: "very_high", label: "Very High Risk", range: "≥ 90", color: "var(--risk-vhigh)" },
     ];
+
 
     const compRows = [
         { label: "Machine Learning", key: "ml_risk",   color: "#818cf8", weight: "60%",  bg: "rgba(99,102,241,0.05)",  border: "rgba(99,102,241,0.2)" },

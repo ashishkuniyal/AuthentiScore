@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Upload, Users, ShieldAlert, FileText, CheckCircle, Search, Activity, Wifi, Loader2 } from "lucide-react";
-import { toast } from "./Toast";
+import { toast } from "../utils/toast";
 import { uploadInfluencerCsv, startLiveAudit, getInstagramSessionStatus } from "../services/api";
+import { useNotifications } from "../context/useNotifications";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import ProfileDeepAuditModal from "./ProfileDeepAuditModal";
 
@@ -26,6 +27,7 @@ const RISK_COLORS = {
 };
 
 export default function InfluencerAuditPage() {
+    const { lastAuditMessage } = useNotifications();
     const [file, setFile] = useState(null);
     const [targetInfluencer, setTargetInfluencer] = useState("");
     const [isDragging, setIsDragging] = useState(false);
@@ -39,61 +41,51 @@ export default function InfluencerAuditPage() {
     const [search, setSearch] = useState("");
     const [sessionStatus, setSessionStatus] = useState(null);
     const [selectedProfile, setSelectedProfile] = useState(null);
+    const [currentAuditId, setCurrentAuditId] = useState(null);
     
     const fileInputRef = useRef(null);
-    const wsRef = useRef(null);
-
-    const connectWebSocket = () => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
-        
-        wsRef.current = new WebSocket("ws://127.0.0.1:8000/ws/notifications");
-        
-        wsRef.current.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "AUDIT_PROGRESS") {
-                    setProgress({
-                        current: data.current,
-                        total: data.total,
-                        percentage: data.percentage,
-                        latest: data.latest_profile
-                    });
-                } else if (data.type === "AUDIT_COMPLETE") {
-                    setResult(data.final_result);
-                    setProgress(null);
-                    setLoading(false);
-                    toast("Live audit completed!", "success");
-                } else if (data.type === "AUDIT_ERROR") {
-                    setProgress(null);
-                    setLoading(false);
-                    toast(data.message || "An error occurred during live audit.", "error");
-                }
-            } catch (e) {
-                console.error("WS parsing error:", e);
-            }
-        };
-    };
 
     useEffect(() => {
-        connectWebSocket();
-
-        return () => {
-            if (wsRef.current) wsRef.current.close();
-        };
-    }, []);
-
-    useEffect(() => {
-        if (platform === "instagram" && auditMode === "live") {
-            setSessionStatus({ status: "checking", message: "Checking session..." });
-            getInstagramSessionStatus().then(res => {
-                setSessionStatus(res);
-            }).catch(err => {
-                setSessionStatus({ status: "unknown", message: "Could not verify session" });
-            });
-        } else {
-            setSessionStatus(null);
+        if (!lastAuditMessage) return;
+        if (currentAuditId && lastAuditMessage.audit_id && lastAuditMessage.audit_id !== currentAuditId) {
+            return;
         }
+
+        const timer = setTimeout(() => {
+            if (lastAuditMessage.type === "AUDIT_PROGRESS") {
+                setProgress({
+                    current: lastAuditMessage.current,
+                    total: lastAuditMessage.total,
+                    percentage: lastAuditMessage.percentage,
+                    latest: lastAuditMessage.latest_profile
+                });
+            } else if (lastAuditMessage.type === "AUDIT_COMPLETE") {
+                setResult(lastAuditMessage.final_result);
+                setProgress(null);
+                setLoading(false);
+                toast("Live audit completed!", "success");
+            } else if (lastAuditMessage.type === "AUDIT_ERROR") {
+                setProgress(null);
+                setLoading(false);
+                toast(lastAuditMessage.message || "An error occurred during live audit.", "error");
+            }
+        }, 0);
+
+        return () => clearTimeout(timer);
+    }, [lastAuditMessage, currentAuditId]);
+
+    useEffect(() => {
+        if (platform !== "instagram" || auditMode !== "live") return;
+        let isCancelled = false;
+        getInstagramSessionStatus().then(res => {
+            if (!isCancelled) setSessionStatus(res);
+        }).catch(() => {
+            if (!isCancelled) setSessionStatus({ status: "unknown", message: "Could not verify session" });
+        });
+        return () => { isCancelled = true; };
     }, [platform, auditMode]);
+
+
 
     const handleDrop = (e) => {
         e.preventDefault();
@@ -141,19 +133,17 @@ export default function InfluencerAuditPage() {
         
         setLoading(true);
         try {
-            // Reconnect websocket if it died (e.g. backend restarted)
-            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-                connectWebSocket();
+            const data = await startLiveAudit(targetInfluencer, platform, sampleSize, simulateFallback);
+            if (data?.audit_id) {
+                setCurrentAuditId(data.audit_id);
             }
-            
-            await startLiveAudit(targetInfluencer, platform, sampleSize, simulateFallback);
             toast("Live sampling started... Connecting to stream.", "success");
-            // The loading state and result are handled by the WS now
         } catch (err) {
-            toast(err.message, "error");
+            toast(err.message || "Failed to start live audit", "error");
             setLoading(false);
         }
     };
+
 
     const reset = () => {
         setFile(null);

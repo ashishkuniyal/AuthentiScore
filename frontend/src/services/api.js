@@ -1,14 +1,12 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
-
+import { API_BASE_URL } from "../config/env";
+import { auth } from "../config/firebase";
 
 // ============================================================
 // Helper — Handle API / Network Errors
 // ============================================================
 
 async function handleResponse(response, defaultMessage) {
-
     let data = {};
-
     try {
         data = await response.json();
     } catch {
@@ -16,251 +14,204 @@ async function handleResponse(response, defaultMessage) {
     }
 
     if (!response.ok) {
-
         throw new Error(
             data.detail ||
             data.error ||
-            defaultMessage
+            data.message ||
+            defaultMessage ||
+            `Request failed with status ${response.status}`
         );
     }
 
     return data;
 }
 
-
-let authToken = null;
-
-export function setApiAuthToken(token) {
-    authToken = token;
-}
-
 // ============================================================
-// Helper — Network Error Wrapper
+// Helper — Network Request Wrapper (F2, F4)
 // ============================================================
 
-async function request(url, options = {}, defaultMessage) {
-    const headers = options.headers || {};
-    if (authToken) {
-        headers["Authorization"] = `Bearer ${authToken}`;
+export async function request(url, options = {}, defaultMessage) {
+    const headers = { ...(options.headers || {}) };
+
+    // Get fresh token dynamically per request (F2)
+    let token = null;
+    try {
+        if (auth.currentUser) {
+            token = await auth.currentUser.getIdToken();
+        }
+    } catch {
+        token = null;
     }
+
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    // Do NOT set Content-Type if body is FormData (browser must set multipart boundary)
+    if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+    }
+
     options.headers = headers;
 
     try {
-        const response = await fetch(url, options);
+        let response = await fetch(url, options);
+
+        // F2: Retry once on 401 with forced token refresh
+        if (response.status === 401 && auth.currentUser) {
+            try {
+                const refreshedToken = await auth.currentUser.getIdToken(true);
+                headers["Authorization"] = `Bearer ${refreshedToken}`;
+                options.headers = headers;
+                response = await fetch(url, options);
+            } catch {
+                // If refresh fails, let handleResponse handle error
+            }
+        }
+
         return await handleResponse(response, defaultMessage);
-
     } catch (error) {
-
-        // Backend is unreachable
-        if (
-            error instanceof TypeError &&
-            error.message.toLowerCase().includes("fetch")
-        ) {
-
+        if (error instanceof TypeError) {
             throw new Error(
                 "AuthentiScore backend is unavailable. Please make sure the API server is running."
             );
         }
-
-        // Preserve our own useful API errors
         throw error;
     }
 }
 
-
 // ============================================================
-// Validate Profile URL
+// Scan Endpoints
 // ============================================================
 
 export async function validateProfileUrl(profileUrl) {
-
     return await request(
-
-        `${API_BASE_URL}/scan/validate-url?profile_url=${encodeURIComponent(
-            profileUrl
-        )}`,
-
-        {
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            }
-        },
-
+        `${API_BASE_URL}/scan/validate-url?profile_url=${encodeURIComponent(profileUrl)}`,
+        { method: "POST" },
         "Unable to validate profile URL."
     );
 }
 
-
-// ============================================================
-// Collect permitted public profile data
-// ============================================================
-
 export async function collectProfile(profileUrl) {
-
     return await request(
-
-        `${API_BASE_URL}/scan/collect-test?profile_url=${encodeURIComponent(
-            profileUrl
-        )}`,
-
-        {
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            }
-        },
-
-        "Unable to collect permitted profile data."
+        `${API_BASE_URL}/scan/collect-test?profile_url=${encodeURIComponent(profileUrl)}`,
+        { method: "POST" },
+        "Unable to collect profile data."
     );
 }
 
-
-// ============================================================
-// Automated URL-driven scan (primary flow)
-// ============================================================
-//
-// Single request: URL → collection → ML+NLP → risk → SHAP → result.
-// The backend performs all pipeline steps internally.
-//
-// On success: returns a complete AutoScanResponse including
-//   collection metadata (source, status, fields_collected).
-// On partial/failed collection: response still contains
-//   whatever was collected and collection.status = "partial"|"failed",
-//   so the frontend can show the manual fallback pre-filled.
-
 export async function autoScan(profileUrl) {
-
     return await request(
-
         `${API_BASE_URL}/scan/auto`,
-
         {
             method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
             body: JSON.stringify({ profile_url: profileUrl })
         },
-
         "Unable to complete the automated profile scan."
     );
 }
 
-
-// ============================================================
-// Run complete persisted profile scan
-// ============================================================
-
 export async function profileScan(profile) {
-
     return await request(
-
         `${API_BASE_URL}/scan/profile-scan`,
-
         {
             method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
             body: JSON.stringify(profile)
         },
-
         "Unable to complete the profile scan."
     );
 }
 
-
-// ============================================================
-// Get Scan History
-// ============================================================
-
 export async function getScanHistory() {
-
     return await request(
-
         `${API_BASE_URL}/history`,
-
-        {
-            method: "GET",
-
-            headers: {
-                "Content-Type": "application/json"
-            }
-        },
-
+        { method: "GET" },
         "Unable to load scan history."
     );
 }
 
-
-// ============================================================
-// Get Analytics Summary
-// ============================================================
-
-export async function getAnalyticsSummary(days = null) {
-    
-    const url = days 
-        ? `${API_BASE_URL}/analytics/summary?days=${days}` 
-        : `${API_BASE_URL}/analytics/summary`;
-
-    return await request(
-        url,
-
-        {
-            method: "GET",
-
-            headers: {
-                "Content-Type": "application/json"
-            }
-        },
-
-        "Unable to load analytics."
-    );
-}
-
-// ============================================================
-// Get Dashboard Summary
-// ============================================================
-
-export async function getDashboardSummary() {
-    return await request(
-        `${API_BASE_URL}/analytics/dashboard-summary`,
-        {
-            method: "GET",
-            headers: {
-                "Content-Type": "application/json"
-            }
-        },
-        "Unable to load dashboard summary."
-    );
-}
-
-// ============================================================
-// Get Recent Scans
-// ============================================================
-
 export async function getRecentScans(limit = 5) {
     return await request(
         `${API_BASE_URL}/scan/recent?limit=${limit}`,
-        {
-            method: "GET",
-            headers: {
-                "Content-Type": "application/json"
-            }
-        },
+        { method: "GET" },
         "Unable to load recent scans."
     );
 }
 
+export async function downloadReportPdf(scanId) {
+    let token = null;
+    try {
+        if (auth.currentUser) {
+            token = await auth.currentUser.getIdToken();
+        }
+    } catch {}
+
+    const headers = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/scan/${scanId}/report.pdf`, { headers });
+    if (!res.ok) {
+        throw new Error("Failed to download PDF report");
+    }
+    return await res.blob();
+}
+
 // ============================================================
-// Upload Influencer CSV for Audit
+// Analytics & Model Endpoints
+// ============================================================
+
+export async function getAnalyticsSummary(days = null) {
+    const url = days
+        ? `${API_BASE_URL}/analytics/summary?days=${days}`
+        : `${API_BASE_URL}/analytics/summary`;
+
+    return await request(url, { method: "GET" }, "Unable to load analytics.");
+}
+
+export async function getDashboardSummary() {
+    return await request(
+        `${API_BASE_URL}/analytics/dashboard-summary`,
+        { method: "GET" },
+        "Unable to load dashboard summary."
+    );
+}
+
+export async function getModelMetrics() {
+    return await request(
+        `${API_BASE_URL}/model/metrics`,
+        { method: "GET" },
+        "Unable to load model metrics."
+    );
+}
+
+// ============================================================
+// Bulk Scanning Endpoints (F4)
+// ============================================================
+
+export async function bulkUpload(file) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    return await request(
+        `${API_BASE_URL}/bulk/upload`,
+        {
+            method: "POST",
+            body: formData
+        },
+        "Failed to upload CSV for bulk scan."
+    );
+}
+
+export async function getBulkJob(jobId) {
+    return await request(
+        `${API_BASE_URL}/bulk/${jobId}`,
+        { method: "GET" },
+        "Failed to fetch bulk job status."
+    );
+}
+
+// ============================================================
+// Audience / Influencer Audit Endpoints
 // ============================================================
 
 export async function uploadInfluencerCsv(file, targetInfluencer = "Unknown") {
@@ -268,37 +219,24 @@ export async function uploadInfluencerCsv(file, targetInfluencer = "Unknown") {
     formData.append("file", file);
     formData.append("target_influencer", targetInfluencer);
 
-    try {
-        const response = await fetch(`${API_BASE_URL}/audit/influencer/csv`, {
+    return await request(
+        `${API_BASE_URL}/audit/influencer/csv`,
+        {
             method: "POST",
-            body: formData,
-        });
-        
-        let data = {};
-        try { data = await response.json(); } catch {}
-        
-        if (!response.ok) throw new Error(data.detail || data.error || "Failed to process audit.");
-        return data;
-    } catch (error) {
-        throw error;
-    }
+            body: formData
+        },
+        "Failed to process audience audit CSV."
+    );
 }
-
-// ============================================================
-// Start Live Influencer Audit (Background Task)
-// ============================================================
 
 export async function startLiveAudit(targetInfluencer, platform = "instagram", sampleSize = 10, simulateFallback = false) {
     return await request(
         `${API_BASE_URL}/audit/influencer/live`,
         {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
             body: JSON.stringify({
                 target_influencer: targetInfluencer,
-                platform: platform,
+                platform,
                 sample_size: sampleSize,
                 simulate_fallback: simulateFallback
             })
@@ -312,5 +250,77 @@ export async function getInstagramSessionStatus() {
         `${API_BASE_URL}/audit/instagram/status`,
         { method: "GET" },
         "Failed to check session status."
+    );
+}
+
+// ============================================================
+// User & Profile Endpoints (F4)
+// ============================================================
+
+export async function getUserStats() {
+    return await request(`${API_BASE_URL}/users/stats`, { method: "GET" }, "Failed to load user stats.");
+}
+
+export async function getActivity() {
+    return await request(`${API_BASE_URL}/users/activity`, { method: "GET" }, "Failed to load user activity.");
+}
+
+export async function getApiKeys() {
+    return await request(`${API_BASE_URL}/users/api-keys`, { method: "GET" }, "Failed to load API keys.");
+}
+
+export async function createApiKey(name) {
+    return await request(
+        `${API_BASE_URL}/users/api-keys`,
+        {
+            method: "POST",
+            body: JSON.stringify({ name })
+        },
+        "Failed to create API key."
+    );
+}
+
+export async function revokeApiKey(keyId) {
+    return await request(
+        `${API_BASE_URL}/users/api-keys/${keyId}`,
+        { method: "DELETE" },
+        "Failed to revoke API key."
+    );
+}
+
+export async function getBilling() {
+    return await request(`${API_BASE_URL}/users/billing`, { method: "GET" }, "Failed to load billing information.");
+}
+
+export async function updateProfile(data) {
+    return await request(
+        `${API_BASE_URL}/users/profile`,
+        {
+            method: "PUT",
+            body: JSON.stringify(data)
+        },
+        "Failed to update profile."
+    );
+}
+
+export async function updatePreferences(data) {
+    return await request(
+        `${API_BASE_URL}/users/preferences`,
+        {
+            method: "PUT",
+            body: JSON.stringify(data)
+        },
+        "Failed to update preferences."
+    );
+}
+
+export async function updateNotifications(data) {
+    return await request(
+        `${API_BASE_URL}/users/notifications`,
+        {
+            method: "PUT",
+            body: JSON.stringify(data)
+        },
+        "Failed to update notification settings."
     );
 }

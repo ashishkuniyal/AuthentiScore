@@ -1,29 +1,26 @@
 import { useEffect, useState, Fragment } from "react";
-import { getScanHistory } from "../services/api";
-import { Filter, Download, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { getScanHistory, downloadReportPdf } from "../services/api";
+import { Filter, Download, ChevronDown } from "lucide-react";
+import { getRiskBand } from "../utils/risk";
 
 function getRiskColor(score) {
-    const s = Number(score ?? 0);
-    if (s < 30) return "var(--risk-low)";
-    if (s < 60) return "var(--risk-med)";
-    if (s < 80) return "var(--risk-high)";
+    const band = getRiskBand(score);
+    if (band.key === "low") return "var(--risk-low)";
+    if (band.key === "medium") return "var(--risk-med)";
+    if (band.key === "high") return "var(--risk-high)";
     return "var(--risk-vhigh)";
 }
 
 function getRiskLabel(score) {
-    const s = Number(score ?? 0);
-    if (s < 30) return "Low";
-    if (s < 60) return "Medium";
-    if (s < 80) return "High";
-    return "Very High";
+    return getRiskBand(score).label;
 }
 
 function getRiskBadgeStyle(score) {
-    const s = Number(score ?? 0);
-    if (s < 30) return { background: "rgba(16,185,129,0.1)",  color: "var(--risk-low)", border: "1px solid rgba(16,185,129,0.2)" };
-    if (s < 60) return { background: "rgba(245,158,11,0.1)",  color: "var(--risk-med)", border: "1px solid rgba(245,158,11,0.2)" };
-    if (s < 80) return { background: "rgba(239,68,68,0.1)",  color: "var(--risk-high)", border: "1px solid rgba(239,68,68,0.2)" };
-    return             { background: "rgba(185,28,28,0.1)",  color: "var(--risk-vhigh)", border: "1px solid rgba(185,28,28,0.2)" };
+    const band = getRiskBand(score);
+    if (band.key === "low") return { background: "rgba(16,185,129,0.1)",  color: "var(--risk-low)", border: "1px solid rgba(16,185,129,0.2)" };
+    if (band.key === "medium") return { background: "rgba(245,158,11,0.1)",  color: "var(--risk-med)", border: "1px solid rgba(245,158,11,0.2)" };
+    if (band.key === "high") return { background: "rgba(239,68,68,0.1)",  color: "var(--risk-high)", border: "1px solid rgba(239,68,68,0.2)" };
+    return             { background: "rgba(168,85,247,0.1)",  color: "var(--risk-vhigh)", border: "1px solid rgba(168,85,247,0.2)" };
 }
 
 function formatDate(ts) {
@@ -43,6 +40,57 @@ function MiniBar({ value = 0 }) {
                 {Number(value).toFixed(1)}
             </span>
         </div>
+    );
+}
+
+function PdfDownloadButton({ scanId }) {
+    const [downloading, setDownloading] = useState(false);
+
+    const handleDownload = async () => {
+        if (!scanId || downloading) return;
+        setDownloading(true);
+        try {
+            const blob = await downloadReportPdf(scanId);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `authentiscore_report_${scanId}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 1000);
+        } catch (err) {
+            alert(err.message || "Download failed");
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    return (
+        <button
+            onClick={handleDownload}
+            disabled={downloading}
+            style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 16px",
+                background: "rgba(16, 185, 129, 0.1)",
+                color: "#10b981",
+                border: "1px solid rgba(16, 185, 129, 0.3)",
+                borderRadius: 8,
+                cursor: downloading ? "not-allowed" : "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+                transition: "all 0.2s"
+            }}
+            onMouseOver={e => e.currentTarget.style.background = "rgba(16, 185, 129, 0.2)"}
+            onMouseOut={e => e.currentTarget.style.background = "rgba(16, 185, 129, 0.1)"}
+        >
+            <Download size={14} /> {downloading ? "Downloading..." : "Download PDF Report"}
+        </button>
     );
 }
 
@@ -79,29 +127,7 @@ function ExpandedRow({ scan }) {
                 
                 {scan.scan_id && (
                     <div style={{ marginTop: 24, textAlign: "right" }}>
-                        <a 
-                            href={`http://localhost:8000/scan/${scan.scan_id}/report.pdf`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 8,
-                                padding: "8px 16px",
-                                background: "rgba(16, 185, 129, 0.1)",
-                                color: "#10b981",
-                                border: "1px solid rgba(16, 185, 129, 0.3)",
-                                borderRadius: 8,
-                                textDecoration: "none",
-                                fontSize: 13,
-                                fontWeight: 700,
-                                transition: "all 0.2s"
-                            }}
-                            onMouseOver={e => e.currentTarget.style.background = "rgba(16, 185, 129, 0.2)"}
-                            onMouseOut={e => e.currentTarget.style.background = "rgba(16, 185, 129, 0.1)"}
-                        >
-                            <Download size={14} /> Download PDF Report
-                        </a>
+                        <PdfDownloadButton scanId={scan.scan_id} />
                     </div>
                 )}
             </td>
@@ -119,17 +145,20 @@ export default function HistoryPage() {
     const [sortAsc,  setSortAsc]  = useState(false);
     const [expanded, setExpanded] = useState(null);
 
-    async function load() {
-        setLoading(true); setError("");
-        try { 
-            const data = await getScanHistory();
-            setHistory(Array.isArray(data) ? data : []); 
+    useEffect(() => {
+        let isCancelled = false;
+        async function fetchHistory() {
+            try { 
+                const data = await getScanHistory();
+                if (!isCancelled) setHistory(Array.isArray(data) ? data : []); 
+            }
+            catch (err) { if (!isCancelled) setError(err.message || "Unable to load history."); }
+            finally { if (!isCancelled) setLoading(false); }
         }
-        catch (err) { setError(err.message || "Unable to load history."); }
-        finally { setLoading(false); }
-    }
+        fetchHistory();
+        return () => { isCancelled = true; };
+    }, []);
 
-    useEffect(() => { load(); }, []);
 
     function toggleSort(key) {
         if (sortKey === key) setSortAsc(a => !a);
@@ -151,8 +180,8 @@ export default function HistoryPage() {
             
             if (filter === "instagram") matchFilter = (s.platform ?? "").toLowerCase() === "instagram";
             if (filter === "twitter") matchFilter = (s.platform ?? "").toLowerCase() === "twitter" || (s.platform ?? "").toLowerCase() === "x";
-            if (filter === "high_risk") matchFilter = Number(s.final_score ?? 0) >= 60;
-            if (filter === "low_risk") matchFilter = Number(s.final_score ?? 0) < 60;
+            if (filter === "high_risk") matchFilter = Number(s.final_score ?? 0) >= 67;
+            if (filter === "low_risk") matchFilter = Number(s.final_score ?? 0) < 34;
             
             return matchSearch && matchFilter;
         })
@@ -182,9 +211,10 @@ export default function HistoryPage() {
         { id: "all", label: "All Records" },
         { id: "instagram", label: "Instagram Only" },
         { id: "twitter", label: "Twitter Only" },
-        { id: "high_risk", label: "High Risk (>= 60)" },
-        { id: "low_risk", label: "Low Risk (< 60)" },
+        { id: "high_risk", label: "High Risk (>= 67)" },
+        { id: "low_risk", label: "Low Risk (< 34)" },
     ];
+
 
     return (
         <main style={{ maxWidth: 1400, margin: "0 auto", padding: "40px 24px 100px", position: "relative" }}>
@@ -343,7 +373,7 @@ export default function HistoryPage() {
                                                 </td>
                                                 <td style={{ padding: "18px 24px" }}>
                                                     <span style={{ padding: "5px 12px", borderRadius: 99, fontSize: 12.5, fontWeight: 800, ...badge }}>
-                                                        {getRiskLabel(score)} Risk
+                                                        {getRiskLabel(score)}
                                                     </span>
                                                 </td>
                                                 <td style={{ padding: "18px 24px", fontSize: 13.5, color: "var(--text-secondary)", whiteSpace: "nowrap", fontWeight: 500 }}>

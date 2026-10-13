@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, Search, User, LogOut, Settings, CreditCard, Sun, Moon } from "lucide-react";
-import { useAuth } from "../context/AuthContext";
+import { Bell, Search, User, LogOut, Sun, Moon } from "lucide-react";
+import { useAuth } from "../context/useAuth";
 import SettingsModal from "./SettingsModal";
 
 export default function Header({ activeTab, notifications = [], onSearch, onNavigate }) {

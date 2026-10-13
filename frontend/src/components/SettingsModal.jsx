@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { X, Save, Camera, Mail, User } from "lucide-react";
 
 export default function SettingsModal({ onClose }) {

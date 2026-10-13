@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import DashboardOverview from "./components/DashboardOverview";
@@ -10,34 +10,15 @@ import InfluencerAuditPage from "./components/InfluencerAuditPage";
 import LoginPage from "./components/LoginPage";
 import ProfilePage from "./components/ProfilePage";
 import ToastContainer from "./components/Toast";
-import { useAuth } from "./context/AuthContext";
+import { useAuth } from "./context/useAuth";
+import { NotificationsProvider } from "./context/NotificationsContext";
+import { useNotifications } from "./context/useNotifications";
 import "./App.css";
 
-export default function App() {
-    const { user, loading } = useAuth();
+function AppMain() {
     const [activeTab, setActiveTab] = useState("dashboard");
-    const [notifications, setNotifications] = useState([]);
     const [globalSearchQuery, setGlobalSearchQuery] = useState("");
-
-    // Setup WebSocket connection
-    useEffect(() => {
-        const ws = new WebSocket("ws://localhost:8000/ws/notifications");
-        
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            setNotifications(prev => [data, ...prev].slice(0, 50));
-        };
-        
-        return () => ws.close();
-    }, []);
-
-    if (loading) {
-        return <div style={{ height: "100vh", background: "var(--bg-app)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>Loading AuthentiScore...</div>;
-    }
-
-    if (!user) {
-        return <LoginPage />;
-    }
+    const { notifications } = useNotifications();
 
     const handleGlobalSearch = (query) => {
         setGlobalSearchQuery(query);
@@ -83,5 +64,42 @@ export default function App() {
             </div>
             <ToastContainer />
         </div>
+    );
+}
+
+export default function App() {
+    const { user, loading, authError, retryAuth, logout } = useAuth();
+
+    if (loading) {
+        return (
+            <div style={{ height: "100vh", background: "var(--bg-app)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
+                Loading AuthentiScore...
+            </div>
+        );
+    }
+
+    if (authError) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center bg-[var(--bg-app)] p-6">
+                <div className="premium-glass p-8 max-w-md w-full text-center space-y-4 border border-rose-500/20">
+                    <h2 className="text-xl font-bold text-rose-400">Authentication Error</h2>
+                    <p className="text-sm text-[var(--text-secondary)]">{authError}</p>
+                    <div className="flex gap-3 justify-center pt-2">
+                        <button className="btn-primary" onClick={retryAuth}>Retry Connection</button>
+                        <button className="btn-secondary" onClick={logout}>Sign Out</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return <LoginPage />;
+    }
+
+    return (
+        <NotificationsProvider>
+            <AppMain />
+        </NotificationsProvider>
     );
 }

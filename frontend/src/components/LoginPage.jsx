@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { Hexagon, Mail, Lock } from "lucide-react";
 
 export default function LoginPage() {
-    const { login } = useAuth();
+    const { login, googleLogin } = useAuth();
     const [username, setUsername] = useState("admin@authentiscore.local");
     const [password, setPassword] = useState("admin");
     const [rememberMe, setRememberMe] = useState(true);
@@ -15,11 +15,7 @@ export default function LoginPage() {
         setError("");
         setLoading(true);
         try {
-            await login(username, password);
-            if (rememberMe) {
-                // Mock persist config
-                localStorage.setItem("remember_me", "true");
-            }
+            await login(username, password, rememberMe);
         } catch (err) {
             setError(err.message);
         } finally {

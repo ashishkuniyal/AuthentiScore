@@ -1,9 +1,5 @@
 import { useState, useEffect } from 'react';
 
-export const toast = (message, type = 'info') => {
-    window.dispatchEvent(new CustomEvent('add-toast', { detail: { message, type } }));
-};
-
 export default function ToastContainer() {
     const [toasts, setToasts] = useState([]);
 

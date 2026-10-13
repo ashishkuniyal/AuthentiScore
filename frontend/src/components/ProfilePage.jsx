@@ -1,110 +1,119 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "../context/useAuth";
 import { User, Shield, Bell, Settings, CreditCard, Key, Users, Activity, CheckCircle2, AlertCircle } from "lucide-react";
+import { 
+    getUserStats, getActivity, getApiKeys, createApiKey as apiCreateKey, 
+    revokeApiKey as apiRevokeKey, getBilling, updateProfile, 
+    updatePreferences, updateNotifications 
+} from "../services/api";
 
-export default function ProfilePage({ initialTab = "overview" }) {
-    const { user, token, refreshUser } = useAuth();
+function ProfileContent({ user, refreshUser, initialTab = "overview" }) {
     const [activeSection, setActiveSection] = useState(initialTab);
-    const [loading, setLoading] = useState(false);
+    const [, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
     
     // User Profile Form State
     const [profileData, setProfileData] = useState({
-        firstName: "", lastName: "", username: "", email: "", phone: "", jobTitle: "", company: "", bio: ""
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        username: user.username || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        jobTitle: user.jobTitle || "",
+        company: user.company || "",
+        bio: user.bio || "",
+        avatar: user.avatar || null
     });
 
     // Preferences State
-    const [prefs, setPrefs] = useState({
-        appearance: "Dark", dashboard_view: "Overview", analytics_period: "30",
-        default_platform: "Instagram", history_retention: "30", rows_per_page: "10"
-    });
+    const [prefs, setPrefs] = useState(() => ({
+        appearance: user.preferences?.appearance || "Dark",
+        dashboard_view: user.preferences?.dashboard_view || "Overview",
+        analytics_period: user.preferences?.analytics_period || "30",
+        default_platform: user.preferences?.default_platform || "Instagram",
+        history_retention: user.preferences?.history_retention || "30",
+        rows_per_page: user.preferences?.rows_per_page || "10"
+    }));
 
     // Notifications State
-    const [notifs, setNotifs] = useState({
-        scan_completed: true, high_risk: true, bulk_completed: true,
-        ai_insights: true, security_alerts: true, product_updates: false
-    });
+    const [notifs, setNotifs] = useState(() => ({
+        scan_completed: user.notifications?.scan_completed ?? true,
+        high_risk: user.notifications?.high_risk ?? true,
+        bulk_completed: user.notifications?.bulk_completed ?? true,
+        ai_insights: user.notifications?.ai_insights ?? true,
+        security_alerts: user.notifications?.security_alerts ?? true,
+        product_updates: user.notifications?.product_updates ?? false
+    }));
 
     // Stats and Activity
     const [stats, setStats] = useState(null);
     const [activity, setActivity] = useState([]);
     const [apiKeys, setApiKeys] = useState([]);
     const [billing, setBilling] = useState(null);
-    
-    useEffect(() => {
-        if (user) {
-            setProfileData({
-                firstName: user.firstName || "",
-                lastName: user.lastName || "",
-                username: user.username || "",
-                email: user.email || "",
-                phone: user.phone || "",
-                jobTitle: user.jobTitle || "",
-                company: user.company || "",
-                bio: user.bio || ""
-            });
-            if (user.preferences) setPrefs(user.preferences);
-            if (user.notifications) setNotifs(user.notifications);
-        }
-    }, [user]);
-
-    useEffect(() => {
-        if (activeSection === "activity") fetchActivity();
-        if (activeSection === "api-keys") fetchApiKeys();
-        if (activeSection === "billing") fetchBilling();
-        if (activeSection === "overview") fetchStats();
-    }, [activeSection]);
 
     const showMessage = (msg, type = "success") => {
         setMessage({ text: msg, type });
         setTimeout(() => setMessage(null), 3000);
     };
 
-    const fetchStats = async () => {
+    const fetchApiKeys = useCallback(async () => {
         try {
-            const res = await fetch("http://localhost:8000/users/stats", { headers: { "Authorization": `Bearer ${token}` } });
-            if (res.ok) setStats(await res.json());
-        } catch (e) {}
-    };
+            const data = await getApiKeys();
+            setApiKeys(data);
+        } catch (err) {
+            showMessage(err.message || "Failed to load API keys", "error");
+        }
+    }, []);
 
-    const fetchActivity = async () => {
-        try {
-            const res = await fetch("http://localhost:8000/users/activity", { headers: { "Authorization": `Bearer ${token}` } });
-            if (res.ok) setActivity(await res.json());
-        } catch (e) {}
-    };
+    useEffect(() => {
+        let isCancelled = false;
+        async function loadSection() {
+            if (activeSection === "activity") {
+                try {
+                    const data = await getActivity();
+                    if (!isCancelled) setActivity(data);
+                } catch (err) {
+                    if (!isCancelled) showMessage(err.message || "Failed to load activity", "error");
+                }
+            } else if (activeSection === "api-keys") {
+                try {
+                    const data = await getApiKeys();
+                    if (!isCancelled) setApiKeys(data);
+                } catch (err) {
+                    if (!isCancelled) showMessage(err.message || "Failed to load API keys", "error");
+                }
+            } else if (activeSection === "billing") {
+                try {
+                    const data = await getBilling();
+                    if (!isCancelled) setBilling(data);
+                } catch (err) {
+                    if (!isCancelled) showMessage(err.message || "Failed to load billing", "error");
+                }
+            } else if (activeSection === "overview") {
+                try {
+                    const data = await getUserStats();
+                    if (!isCancelled) setStats(data);
+                } catch (err) {
+                    if (!isCancelled) showMessage(err.message || "Failed to load stats", "error");
+                }
+            }
+        }
+        loadSection();
+        return () => {
+            isCancelled = true;
+        };
+    }, [activeSection]);
 
-    const fetchApiKeys = async () => {
-        try {
-            const res = await fetch("http://localhost:8000/users/api-keys", { headers: { "Authorization": `Bearer ${token}` } });
-            if (res.ok) setApiKeys(await res.json());
-        } catch (e) {}
-    };
-
-    const fetchBilling = async () => {
-        try {
-            const res = await fetch("http://localhost:8000/users/billing", { headers: { "Authorization": `Bearer ${token}` } });
-            if (res.ok) setBilling(await res.json());
-        } catch (e) {}
-    };
 
     const handleProfileSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         try {
-            const res = await fetch("http://localhost:8000/users/profile", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(profileData)
-            });
-            if (res.ok) {
-                showMessage("Profile updated successfully");
-                await refreshUser();
-            } else {
-                showMessage("Failed to update profile", "error");
-            }
+            await updateProfile(profileData);
+            showMessage("Profile updated successfully");
+            await refreshUser();
         } catch (err) {
-            showMessage("An error occurred", "error");
+            showMessage(err.message || "Failed to update profile", "error");
         } finally {
             setLoading(false);
         }
@@ -114,61 +123,53 @@ export default function ProfilePage({ initialTab = "overview" }) {
         e.preventDefault();
         setLoading(true);
         try {
-            const res = await fetch("http://localhost:8000/users/preferences", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(prefs)
-            });
-            if (res.ok) {
-                showMessage("Preferences saved");
-                await refreshUser();
-            }
-        } catch (err) {} finally { setLoading(false); }
+            await updatePreferences(prefs);
+            showMessage("Preferences saved");
+            await refreshUser();
+        } catch (err) {
+            showMessage(err.message || "Failed to save preferences", "error");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleNotifsSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         try {
-            const res = await fetch("http://localhost:8000/users/notifications", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(notifs)
-            });
-            if (res.ok) {
-                showMessage("Notification settings saved");
-                await refreshUser();
-            }
-        } catch (err) {} finally { setLoading(false); }
+            await updateNotifications(notifs);
+            showMessage("Notification settings saved");
+            await refreshUser();
+        } catch (err) {
+            showMessage(err.message || "Failed to save notifications", "error");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const createApiKey = async () => {
         const name = prompt("Enter a name for this API key:");
         if (!name) return;
         try {
-            const res = await fetch("http://localhost:8000/users/api-keys", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ name })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                alert(`API Key created!\n\n${data.api_key}\n\nPlease copy it now. You won't be able to see it again.`);
-                fetchApiKeys();
-            }
-        } catch (err) {}
+            const data = await apiCreateKey(name);
+            alert(`API Key created!\n\n${data.api_key}\n\nPlease copy it now. You won't be able to see it again.`);
+            fetchApiKeys();
+        } catch (err) {
+            showMessage(err.message || "Failed to create API key", "error");
+        }
     };
 
     const revokeApiKey = async (id) => {
         if (!confirm("Are you sure you want to revoke this API key?")) return;
         try {
-            const res = await fetch(`http://localhost:8000/users/api-keys/${id}`, {
-                method: "DELETE",
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            if (res.ok) fetchApiKeys();
-        } catch (err) {}
+            await apiRevokeKey(id);
+            showMessage("API key revoked");
+            fetchApiKeys();
+        } catch (err) {
+            showMessage(err.message || "Failed to revoke API key", "error");
+        }
     };
+
 
     const sections = [
         { id: "overview", label: "Overview", icon: <User size={18} /> },
@@ -595,3 +596,10 @@ export default function ProfilePage({ initialTab = "overview" }) {
         </div>
     );
 }
+
+export default function ProfilePage({ initialTab = "overview" }) {
+    const { user, refreshUser } = useAuth();
+    if (!user) return <div className="p-10 text-center">Loading...</div>;
+    return <ProfileContent key={user.id || user.email || "current-user"} user={user} refreshUser={refreshUser} initialTab={initialTab} />;
+}
+
