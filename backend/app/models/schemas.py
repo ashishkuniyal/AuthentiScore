@@ -304,5 +304,9 @@ class ScanFeedbackRequest(BaseModel):
     rating: Optional[int] = None
 
 
-    # -- Collection audit --
-    collection: CollectionMetadata
+class ScanJobRequest(BaseModel):
+    input: str
+    platform: Optional[str] = "instagram"
+    consent: bool = False
+    force_refresh: Optional[bool] = False
+

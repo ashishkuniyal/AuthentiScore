@@ -14,8 +14,17 @@ from app.models.schemas import (
     AutoScanRequest,
     AutoScanResponse,
     ScanFeedbackRequest,
+    ScanJobRequest,
+)
+from app.services.url_normalizer import normalize_profile_input
+from app.services.scan_manager import (
+    create_scan_job,
+    get_job_status,
+    cancel_job,
+    get_cached_scan,
 )
 from app.services.ml_engine import calculate_ml_risk
+
 from app.services.collector import (
     validate_profile_url,
     collect_profile,
@@ -467,6 +476,78 @@ def profile_scan(
 
 
 # ==================================================
+# 7.5 Background Scan Jobs (B2, B3)
+# ==================================================
+
+@router.post("/jobs")
+def create_background_scan_job(
+    job_req: ScanJobRequest,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Launch an asynchronous background scan job with stage progress events (B2).
+    Enforces user consent requirement (S10) and checks 24-hour result cache (B3).
+    """
+    if not job_req.consent:
+        raise HTTPException(
+            status_code=422,
+            detail="Consent must be confirmed to perform automated profile scan."
+        )
+
+    norm = normalize_profile_input(job_req.input, default_platform=job_req.platform or "instagram")
+    if not norm["valid"]:
+        raise HTTPException(
+            status_code=422,
+            detail=norm.get("error") or "Invalid profile URL or handle format."
+        )
+
+    try:
+        job_info = create_scan_job(
+            platform=norm["platform"],
+            username=norm["username"],
+            canonical_url=norm["canonical_url"],
+            user_id=str(current_user["_id"]),
+            force_refresh=bool(job_req.force_refresh)
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=429, detail=str(ve))
+
+    return job_info
+
+
+@router.get("/jobs/{job_id}")
+def get_background_scan_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Query current stage, progress percentage, and results of a background scan job.
+    """
+    job = get_job_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Scan job not found.")
+    return job
+
+
+@router.delete("/jobs/{job_id}")
+def cancel_background_scan_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Cancel an active or queued background scan job.
+    """
+    success = cancel_job(job_id)
+    if not success:
+        job = get_job_status(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Scan job not found.")
+        return {"job_id": job_id, "status": job.get("status"), "message": "Job cannot be cancelled (already finished or failed)."}
+
+    return {"job_id": job_id, "status": "cancelled", "message": "Scan job cancelled successfully."}
+
+
+# ==================================================
 # 8. Automated URL-Driven Scan (primary endpoint)
 # ==================================================
 
@@ -479,6 +560,12 @@ def auto_scan(
     request: AutoScanRequest,
     current_user: dict = Depends(get_current_active_user)
 ):
+    if not request.consent:
+        raise HTTPException(
+            status_code=422,
+            detail="Consent must be confirmed to perform automated profile scan."
+        )
+
     profile_url = str(request.profile_url)
     scan_id = str(uuid.uuid4())
 
@@ -488,6 +575,14 @@ def auto_scan(
             status_code=422,
             detail=validation["error"] or "Unsupported social media platform.",
         )
+
+    # 24-hour cache check (Decision S6)
+    username_cand = validation.get("username", "")
+    platform_cand = validation.get("platform", "")
+    if username_cand and platform_cand:
+        cached = get_cached_scan(platform_cand, username_cand)
+        if cached:
+            return cached
 
     collected = collect_profile(profile_url)
     collection_metadata = {
@@ -539,7 +634,9 @@ def auto_scan(
         "features": features,
         **result,
         "collection": collection_metadata,
+        "from_cache": False,
     }
+
 
 
 # ==================================================
