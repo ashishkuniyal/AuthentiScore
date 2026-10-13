@@ -33,16 +33,16 @@ logger = logging.getLogger(__name__)
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 TRAINED_MODELS_DIR = BACKEND_DIR / "trained_models"
 
-_MODEL_PKL   = TRAINED_MODELS_DIR / "authentiscore_ensemble_v3.pkl"
-_FEATURES_JSON = TRAINED_MODELS_DIR / "authentiscore_features_v3.json"
-_METRICS_JSON  = TRAINED_MODELS_DIR / "metrics_v3.json"
+_MODEL_PKL   = TRAINED_MODELS_DIR / "authentiscore_ensemble_v4.pkl"
+_FEATURES_JSON = TRAINED_MODELS_DIR / "authentiscore_features_v4.json"
+_METRICS_JSON  = TRAINED_MODELS_DIR / "metrics_v4.json"
 
 # ─────────────────────────────────────────────────────────────
 # Public metadata (available even without artefacts)
 # ─────────────────────────────────────────────────────────────
 
 MODEL_NAME    = "CalibratedEnsemble_LR_RF_XGB"
-MODEL_VERSION = "v3"
+MODEL_VERSION = "v4"
 
 # ─────────────────────────────────────────────────────────────
 # Internal singleton state
@@ -84,7 +84,11 @@ def _attempt_load() -> None:
         _model = joblib.load(_MODEL_PKL)
 
         with open(_FEATURES_JSON, "r", encoding="utf-8") as fh:
-            _features = json.load(fh)
+            raw_data = json.load(fh)
+            if isinstance(raw_data, dict) and "features" in raw_data:
+                _features = raw_data["features"]
+            else:
+                _features = raw_data
 
         _loaded = True
         _load_error = None

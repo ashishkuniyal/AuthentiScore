@@ -78,7 +78,8 @@ OBSERVED_KEYS = ["followers", "following", "posts", "bio_length", "has_profile_p
 
 def run_risk_pipeline(
     profile: dict,
-    bio: str = ""
+    bio: str = "",
+    explain: bool = True
 ):
     """
     Run the complete AuthentiScore pipeline.
@@ -227,7 +228,7 @@ def run_risk_pipeline(
     # --------------------------------------------------
     # 7. SHAP Explanation
     # --------------------------------------------------
-    top_ml_factors = generate_ml_explanation(profile_data, top_n=3)
+    top_ml_factors = generate_ml_explanation(profile_data, top_n=3) if explain else []
 
     # --------------------------------------------------
     # 8. NLP Explanation

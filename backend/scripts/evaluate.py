@@ -286,7 +286,7 @@ def evaluate_dataset(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     for item in records:
         target = item["label"]
-        res = run_risk_pipeline(item, bio=item.get("bio", ""))
+        res = run_risk_pipeline(item, bio=item.get("bio", ""), explain=False)
         score = res.get("final_score")
         is_abstain = bool(res.get("abstain", False) or score is None)
 
