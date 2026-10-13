@@ -30,6 +30,8 @@ POLICY:
   - No private data, DMs, or protected tweets are accessed.
 """
 
+import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -46,6 +48,8 @@ from app.services.collectors.generic_public_collector import (
     fetch_public_page
 )
 
+logger = logging.getLogger(__name__)
+
 TWITTER_DOMAINS = {
     "twitter.com",
     "www.twitter.com",
@@ -61,8 +65,9 @@ class TwitterCollector(BaseCollector):
     """
     Collector for public Twitter/X profiles.
 
-    Uses the official Twitter v2 API when a bearer token is available,
-    otherwise triggers the manual fallback immediately.
+    Strategy 1: Official Twitter v2 API when a working bearer token is available.
+    Strategy 2: Real-time public extraction via FxTwitter/FixTweet API proxy when
+                the official API is unconfigured or restricted (e.g. HTTP 402).
     """
 
     # ---------------------------------------------------------------
@@ -79,8 +84,8 @@ class TwitterCollector(BaseCollector):
     def collect(self, url: str) -> dict:
         """
         Main collection entry point.
-        Uses official Twitter API v2 when TWITTER_BEARER_TOKEN is set.
-        Without a token, Twitter requires authentication and returns failed.
+        Strategy 1: Official Twitter API v2 when TWITTER_BEARER_TOKEN is set.
+        Strategy 2: Public live extraction fallback via FxTwitter/FixTweet proxy.
         """
         username = self._extract_username(url)
 
@@ -95,18 +100,14 @@ class TwitterCollector(BaseCollector):
             }
 
         bearer_token = unquote(os.getenv("TWITTER_BEARER_TOKEN", "").strip())
-        if not bearer_token:
-            return {
-                "platform": "twitter",
-                "url": url,
-                "username": username,
-                "collection_source": "none",
-                "collection_status": "failed",
-                "success": False,
-                "error": "Twitter/X requires authentication. Set TWITTER_BEARER_TOKEN in .env.",
-            }
+        if bearer_token:
+            api_res = self._collect_via_api(username, bearer_token, url)
+            if api_res.get("success"):
+                return api_res
+            logger.info("Twitter API v2 did not succeed (%s) — falling back to public extraction", api_res.get("error"))
 
-        return self._collect_via_api(username, bearer_token, url)
+        # Strategy 2: Live public extraction via FxTwitter / FixTweet proxy
+        return self._collect_via_public(username, url)
 
     def normalize(self, raw: dict) -> dict:
         username = raw.get("username")
@@ -292,6 +293,73 @@ class TwitterCollector(BaseCollector):
             "has_profile_picture": has_profile_pic,
             "is_private":          parse_bool_to_int(user.get("protected")),
             "collection_source":   "official_api",
+            "error":               None,
+        }
+
+    # ---------------------------------------------------------------
+    # Public Live Extraction (FxTwitter / FixTweet)
+    # ---------------------------------------------------------------
+
+    def _collect_via_public(self, username: str, url: str) -> dict:
+        """
+        Public live extraction via FixTweet / FxTwitter public API proxy.
+        Retrieves real-time public Twitter/X profile data without requiring
+        a paid Twitter API v2 subscription or login credentials.
+        """
+        endpoint = f"https://api.fxtwitter.com/{username}"
+        page_res = fetch_public_page(
+            endpoint,
+            extra_headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json",
+            },
+        )
+
+        if not page_res.get("success") or not page_res.get("html"):
+            return {
+                "success": False,
+                "url": url,
+                "username": username,
+                "collection_source": "none",
+                "error": page_res.get("error") or "Twitter profile could not be reached via public extraction.",
+            }
+
+        try:
+            data = json.loads(page_res["html"])
+        except Exception:
+            return {
+                "success": False,
+                "url": url,
+                "username": username,
+                "collection_source": "none",
+                "error": "Failed to parse public Twitter profile response.",
+            }
+
+        if data.get("code") == 404 or not data.get("user"):
+            return {
+                "success": False,
+                "url": url,
+                "username": username,
+                "collection_source": "none",
+                "error": "Twitter profile not found.",
+            }
+
+        user = data["user"]
+        has_profile_pic = parse_bool_to_int(bool(user.get("avatar_url")))
+
+        return {
+            "success":             True,
+            "url":                 url,
+            "username":            user.get("screen_name") or username,
+            "display_name":        user.get("name"),
+            "bio":                 user.get("description"),
+            "followers":           parse_count(user.get("followers")),
+            "following":           parse_count(user.get("following")),
+            "posts":               parse_count(user.get("tweets")),
+            "has_profile_picture": has_profile_pic,
+            "is_private":          parse_bool_to_int(user.get("protected")),
+            "joined_date":         user.get("joined"),
+            "collection_source":   "permitted_public_page",
             "error":               None,
         }
 

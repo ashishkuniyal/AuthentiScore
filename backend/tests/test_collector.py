@@ -404,6 +404,41 @@ class TestTwitterCollector(unittest.TestCase):
         self.assertEqual(profile["followers"], 500.0)
         self.assertEqual(profile["collection_source"], "official_api")
 
+    # Twitter public live extraction success path without token
+    @patch("app.services.collectors.twitter_collector.fetch_public_page")
+    def test_twitter_public_success_without_token(self, mock_fetch):
+        import json
+        mock_fetch.return_value = {
+            "success": True,
+            "status_code": 200,
+            "html": json.dumps({
+                "code": 200,
+                "user": {
+                    "screen_name": "testuser",
+                    "name": "Test User",
+                    "description": "A public Twitter bio",
+                    "followers": 1250,
+                    "following": 320,
+                    "tweets": 850,
+                    "avatar_url": "https://pbs.twimg.com/avatar.jpg",
+                    "protected": False,
+                    "joined": "Mon Jan 01 00:00:00 +0000 2024",
+                }
+            }),
+            "error": None,
+        }
+
+        with patch.dict("os.environ", {"TWITTER_BEARER_TOKEN": ""}):
+            collector = TwitterCollector()
+            profile = collector.run("https://x.com/testuser")
+
+        self.assertEqual(profile["collection_status"], "success")
+        self.assertEqual(profile["username"], "testuser")
+        self.assertEqual(profile["followers"], 1250.0)
+        self.assertEqual(profile["following"], 320.0)
+        self.assertEqual(profile["posts"], 850.0)
+        self.assertEqual(profile["collection_source"], "permitted_public_page")
+
 
 # ==============================================================
 # 5. Dispatcher Tests
