@@ -19,7 +19,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import firebase_admin
-from firebase_admin import auth
+from firebase_admin import auth, credentials
+import google.auth
+from google.auth.credentials import AnonymousCredentials
+from google.auth.exceptions import DefaultCredentialsError
 from pymongo.errors import DuplicateKeyError
 
 from app.database.mongodb import db, users_collection
@@ -35,7 +38,18 @@ try:
     firebase_admin.get_app()
 except ValueError:
     project_id = os.getenv("FIREBASE_PROJECT_ID", "authentiscore-1443f")
-    firebase_admin.initialize_app(options={"projectId": project_id})
+    cred = None
+    service_account_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+    if service_account_path and os.path.exists(service_account_path):
+        cred = credentials.Certificate(service_account_path)
+    else:
+        try:
+            g_cred, _ = google.auth.default()
+            cred = credentials._ExternalCredentials(g_cred)
+        except (DefaultCredentialsError, Exception):
+            cred = credentials._ExternalCredentials(AnonymousCredentials())
+
+    firebase_admin.initialize_app(cred, options={"projectId": project_id})
 
 router = APIRouter()
 security_bearer = HTTPBearer(auto_error=False)
