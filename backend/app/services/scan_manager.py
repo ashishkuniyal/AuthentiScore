@@ -145,6 +145,8 @@ def _execute_scan_job(job_id: str, platform: str, username: str, canonical_url: 
             "status": collected.get("collection_status", "success"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "fields_collected": collected.get("fields_collected", []),
+            "trust_level": collected.get("trust_level"),
+            "data_verified": collected.get("data_verified", False),
         }
 
         save_scan_result(

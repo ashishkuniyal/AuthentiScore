@@ -592,6 +592,8 @@ def auto_scan(
         "status": collected.get("collection_status", "failed"),
         "timestamp": collected.get("collected_at") or datetime.now(timezone.utc).isoformat(),
         "fields_collected": collected.get("fields_collected", []),
+        "trust_level": collected.get("trust_level"),
+        "data_verified": collected.get("data_verified", False),
     }
 
     features = extract_features(collected)

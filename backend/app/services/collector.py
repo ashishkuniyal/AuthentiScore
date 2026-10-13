@@ -87,9 +87,29 @@ def build_provenance_and_verification(profile: dict) -> dict:
     data_verified = direct_core_count >= 6
     error_taxonomy = classify_error_taxonomy(profile.get("error"))
 
+    if data_verified:
+        trust_level = {
+            "code": "verified",
+            "label": "Data verified",
+            "tooltip": "Collected from verified official/direct source with >=6 confirmed core attributes"
+        }
+    elif source == "user_provided":
+        trust_level = {
+            "code": "user_provided",
+            "label": "User provided",
+            "tooltip": "Profile attributes manually entered by user"
+        }
+    else:
+        trust_level = {
+            "code": "unverified",
+            "label": "Public page (unverified)",
+            "tooltip": "Collected from public web markup without full official verification"
+        }
+
     profile["provenance"] = provenance
     profile["data_verified"] = data_verified
     profile["error_taxonomy"] = error_taxonomy
+    profile["trust_level"] = trust_level
     return profile
 
 

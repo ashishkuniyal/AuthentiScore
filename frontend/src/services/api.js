@@ -100,16 +100,17 @@ export async function collectProfile(profileUrl) {
     );
 }
 
-export async function autoScan(profileUrl) {
+export async function autoScan(profileUrl, consent = true) {
     return await request(
         `${API_BASE_URL}/scan/auto`,
         {
             method: "POST",
-            body: JSON.stringify({ profile_url: profileUrl })
+            body: JSON.stringify({ profile_url: profileUrl, consent })
         },
         "Unable to complete the automated profile scan."
     );
 }
+
 
 export async function profileScan(profile) {
     return await request(
@@ -322,5 +323,74 @@ export async function updateNotifications(data) {
             body: JSON.stringify(data)
         },
         "Failed to update notification settings."
+    );
+}
+
+// ============================================================
+// Scanner V2 — Jobs, Feedback, Overrides & Status (B1–B9)
+// ============================================================
+
+export async function createScanJob({ input, platform = "instagram", consent = true, force_refresh = false }) {
+    return await request(
+        `${API_BASE_URL}/scan/jobs`,
+        {
+            method: "POST",
+            body: JSON.stringify({ input, platform, consent, force_refresh })
+        },
+        "Unable to start background profile analysis job."
+    );
+}
+
+export async function getScanJob(jobId) {
+    return await request(
+        `${API_BASE_URL}/scan/jobs/${jobId}`,
+        { method: "GET" },
+        "Unable to check scan job status."
+    );
+}
+
+export async function cancelScanJob(jobId) {
+    return await request(
+        `${API_BASE_URL}/scan/jobs/${jobId}`,
+        { method: "DELETE" },
+        "Unable to cancel scan job."
+    );
+}
+
+export async function submitScanFeedback(scanId, { user_verdict, comment = null, rating = null }) {
+    return await request(
+        `${API_BASE_URL}/scan/${scanId}/feedback`,
+        {
+            method: "POST",
+            body: JSON.stringify({ user_verdict, comment, rating })
+        },
+        "Failed to record scan feedback."
+    );
+}
+
+export async function deleteScan(scanId) {
+    return await request(
+        `${API_BASE_URL}/scan/${scanId}`,
+        { method: "DELETE" },
+        "Failed to delete scan record."
+    );
+}
+
+export async function manuallyCompleteScan(scanId, overrides) {
+    return await request(
+        `${API_BASE_URL}/scan/${scanId}/complete`,
+        {
+            method: "POST",
+            body: JSON.stringify(overrides)
+        },
+        "Failed to submit manual profile completion."
+    );
+}
+
+export async function getSystemStatus() {
+    return await request(
+        `${API_BASE_URL}/system/status`,
+        { method: "GET" },
+        "Unable to load real-time system status."
     );
 }

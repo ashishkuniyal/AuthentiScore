@@ -239,6 +239,17 @@ class CollectionMetadata(BaseModel):
     or "none".
     """
 
+    trust_level: Optional[Dict[str, Any]] = None
+    """
+    Provenance-based trust badge: {code, label, tooltip}.
+    e.g. {code: 'verified', label: 'Data verified', tooltip: '...'}
+    """
+
+    data_verified: Optional[bool] = False
+    """
+    True only when >= 6 of 8 core fields come directly from official source.
+    """
+
 
 # ==================================================
 # Auto-Scan Response

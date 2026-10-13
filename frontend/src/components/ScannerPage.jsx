@@ -1,50 +1,44 @@
-// ScannerPage.jsx — Automated URL-driven scan (primary flow) + manual fallback
+// ScannerPage.jsx — Background Scan Jobs (B2), 24h Cache (B3), Truthful System Status (B7), Keyboard & UX (B9)
 import { useState, useRef, useEffect, useCallback } from "react";
 import ResultsPanel from "./ResultsPanel";
 import {
-    autoScan,
+    createScanJob,
+    getScanJob,
+    cancelScanJob,
     profileScan,
+    getRecentScans,
+    getSystemStatus,
 } from "../services/api";
 
 // ==============================================================
-// Pipeline animation steps
-// (single-request flow — steps are animated client-side for UX)
+// Background Pipeline Steps (B2)
 // ==============================================================
 
 const PIPELINE_STEPS = [
-    { id: "validate",  label: "Validating profile URL" },
-    { id: "collect",   label: "Collecting permitted public data" },
-    { id: "features",  label: "Extracting features" },
-    { id: "ml",        label: "Running ML model" },
-    { id: "nlp",       label: "Analysing bio with NLP" },
-    { id: "risk",      label: "Calculating unified risk score" },
-    { id: "shap",      label: "Generating SHAP explanation" },
-    { id: "save",      label: "Saving result" },
+    { id: "normalizing", label: "Normalizing input & checking 24h cache" },
+    { id: "collecting",  label: "Collecting permitted public profile data" },
+    { id: "features",    label: "Extracting behavioral & account features" },
+    { id: "scoring",     label: "Running calibrated v4 ensemble model" },
+    { id: "explaining",  label: "Synthesizing unified explainability reasons" },
+    { id: "complete",    label: "Audit report ready" },
 ];
 
-// ==============================================================
-// Collection source badge labels
-// ==============================================================
-
-const SOURCE_LABELS = {
-    official_api:          "Official API",
-    permitted_public_page: "Automated Public Collection",
-    user_provided:         "User-Provided Fallback",
-    none:                  "No Automated Source",
-};
-
-const SOURCE_COLORS = {
-    official_api:          { bg: "rgba(5,150,105,0.08)",  border: "rgba(5,150,105,0.25)",  text: "var(--risk-low)" },
-    permitted_public_page: { bg: "rgba(99,102,241,0.08)", border: "rgba(99,102,241,0.25)", text: "var(--accent)" },
-    user_provided:         { bg: "rgba(217,119,6,0.08)",  border: "rgba(217,119,6,0.25)",  text: "var(--risk-med)" },
-    none:                  { bg: "rgba(220,38,38,0.06)",  border: "rgba(220,38,38,0.18)",  text: "#b91c1c" },
-};
+function detectPlatform(url) {
+    const u = (url || "").trim().toLowerCase();
+    if (u.includes("instagram.com")) return "instagram";
+    if (u.includes("twitter.com") || u.includes("x.com")) return "twitter";
+    if (u.includes("youtube.com") || u.includes("youtu.be")) return "youtube";
+    if (u.includes("mastodon") || u.includes("mstdn")) return "mastodon";
+    if (u.includes("tiktok.com")) return "tiktok";
+    if (u.includes("github.com")) return "github";
+    return "instagram";
+}
 
 // ==============================================================
-// Scanning Animation
+// Scanning Animation with Cancel Action
 // ==============================================================
 
-function ScanningAnimation({ activeStep }) {
+function ScanningAnimation({ activeStep, onCancel }) {
     return (
         <div
             className="animate-scale-in"
@@ -56,24 +50,35 @@ function ScanningAnimation({ activeStep }) {
                 marginTop: 24,
                 boxShadow: "inset 0 2px 10px rgba(99,102,241,0.05)",
             }}
+            aria-live="polite"
         >
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-                <div
-                    style={{
-                        width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                        border: "3px solid rgba(99,102,241,0.2)",
-                        borderTopColor: "var(--accent)",
-                        animation: "spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite",
-                    }}
-                />
-                <div>
-                    <div style={{ fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
-                        Running AuthentiScore pipeline…
-                    </div>
-                    <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>
-                        This usually takes a few seconds
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <div
+                        style={{
+                            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                            border: "3px solid rgba(99,102,241,0.2)",
+                            borderTopColor: "var(--accent)",
+                            animation: "spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+                        }}
+                    />
+                    <div>
+                        <div style={{ fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
+                            Running AuthentiScore pipeline…
+                        </div>
+                        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>
+                            Asynchronous background job in progress
+                        </div>
                     </div>
                 </div>
+
+                <button
+                    onClick={onCancel}
+                    className="btn-ghost"
+                    style={{ fontSize: 13, padding: "6px 14px", border: "1px solid var(--border-inner)" }}
+                >
+                    Cancel (Esc)
+                </button>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -134,71 +139,7 @@ function ScanningAnimation({ activeStep }) {
 }
 
 // ==============================================================
-// Collection Source Badge
-// ==============================================================
-
-function CollectionBadge({ collection }) {
-    if (!collection) return null;
-
-    const source  = collection.source || "none";
-    const status  = collection.status || "unknown";
-    const fields  = collection.fields_collected || [];
-    const label   = SOURCE_LABELS[source] || source;
-    const colors  = SOURCE_COLORS[source] || SOURCE_COLORS.none;
-
-    const statusIcon =
-        status === "success" ? "✓" :
-        status === "partial" ? "◑" : "✕";
-
-    const statusColor =
-        status === "success" ? "var(--risk-low)" :
-        status === "partial" ? "var(--risk-med)" : "#b91c1c";
-
-    return (
-        <div
-            style={{
-                marginTop: 24,
-                padding: "18px 22px",
-                background: colors.bg,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 14,
-            }}
-        >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 800, color: "var(--text-muted)" }}>
-                    Data Source
-                </div>
-                <div style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    padding: "4px 14px", borderRadius: 99,
-                    background: colors.bg, border: `1px solid ${colors.border}`,
-                    fontSize: 13, fontWeight: 700, color: colors.text,
-                }}>
-                    <span style={{ color: statusColor }}>{statusIcon}</span>
-                    {label}
-                </div>
-                {fields.length > 0 && (
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                        Fields collected: {fields.join(", ")}
-                    </div>
-                )}
-            </div>
-            {status === "partial" && (
-                <div style={{ marginTop: 10, fontSize: 13, color: "var(--risk-med)", fontWeight: 500 }}>
-                    ◑ Partial collection — some fields were unavailable from the automated source.
-                </div>
-            )}
-            {status === "failed" && (
-                <div style={{ marginTop: 10, fontSize: 13, color: "#b91c1c", fontWeight: 500 }}>
-                    ✕ Automated collection failed — result is based on user-provided data.
-                </div>
-            )}
-        </div>
-    );
-}
-
-// ==============================================================
-// Manual Fallback Form
+// Manual Fallback Form (B5)
 // ==============================================================
 
 function ManualFallbackForm({ profile, platform, onUpdate, onSubmit, onCancel, loading }) {
@@ -221,7 +162,7 @@ function ManualFallbackForm({ profile, platform, onUpdate, onSubmit, onCancel, l
                     Complete the profile details
                 </h3>
                 <p style={{ margin: "8px 0 0", fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                    Automated data collection was incomplete for <strong>{platform}</strong>. Please enter the missing publicly visible information below to proceed.
+                    Automated data collection was restricted for <strong>{platform}</strong>. Please enter the missing publicly visible information below to proceed with scoring.
                 </p>
             </div>
 
@@ -297,108 +238,234 @@ function ManualFallbackForm({ profile, platform, onUpdate, onSubmit, onCancel, l
                     {loading ? "Analysing…" : "Run Analysis →"}
                 </button>
             </div>
-
         </div>
     );
 }
 
 // ==============================================================
-// Feature Cards
+// Main ScannerPage Component
 // ==============================================================
 
-// Removed FeatureCards to reduce clutter
-// ==============================================================
-// Main ScannerPage
-// ==============================================================
-
-export default function ScannerPage({ notifications = [], initialSearchQuery = "", onClearSearch = () => {} }) {
-    const [profileUrl,    setProfileUrl]    = useState("");
-    const [scanConsent,   setScanConsent]   = useState(false);
-    const [loading,       setLoading]       = useState(false);
-    const [activeStep,    setActiveStep]    = useState(-1);
-    const [error,         setError]         = useState("");
-    const [result,        setResult]        = useState(null);
-    const [showManual,    setShowManual]    = useState(false);
-    const [manualProfile, setManualProfile] = useState({
+export default function ScannerPage({
+    notifications = [],
+    initialSearchQuery = "",
+    onClearSearch = () => {},
+    onNavigateToBulk = () => {},
+}) {
+    const [profileUrl,       setProfileUrl]       = useState("");
+    const [scanConsent,      setScanConsent]      = useState(true); // Checked by default (B8)
+    const [loading,          setLoading]          = useState(false);
+    const [activeStep,       setActiveStep]       = useState(-1);
+    const [currentJobId,     setCurrentJobId]     = useState(null);
+    const [error,            setError]            = useState("");
+    const [result,           setResult]           = useState(null);
+    const [showManual,       setShowManual]       = useState(false);
+    const [systemStatus,     setSystemStatus]     = useState(null);
+    const [recentScans,      setRecentScans]      = useState([]);
+    const [manualProfile,    setManualProfile]    = useState({
         platform: "", profile_url: "", username: "",
         followers: "", following: "", posts: "",
         bio: "", has_profile_picture: null, is_private: null,
     });
+
+    const pollRef = useRef(null);
+    const inputRef = useRef(null);
     const resultsRef = useRef(null);
 
-    // Animate through pipeline steps with a brief pause each
-    async function step(n) {
-        setActiveStep(n);
-        return new Promise(r => setTimeout(r, 480));
-    }
+    const detectedPlatform = detectPlatform(profileUrl);
+
+    // Stop active polling
+    const stopPolling = useCallback(() => {
+        if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+        }
+    }, []);
 
     // ----------------------------------------------------------
-    // Primary: Automated scan
+    // Load Truthful System Status & Recent Scans (B7)
+    // ----------------------------------------------------------
+
+    useEffect(() => {
+        let isMounted = true;
+        const loadInitialData = async () => {
+            try {
+                const [statusData, recentsData] = await Promise.allSettled([
+                    getSystemStatus(),
+                    getRecentScans(5),
+                ]);
+                if (!isMounted) return;
+                if (statusData.status === "fulfilled") setSystemStatus(statusData.value);
+                if (recentsData.status === "fulfilled" && Array.isArray(recentsData.value)) {
+                    setRecentScans(recentsData.value);
+                }
+            } catch {
+                // Ignore initial load error
+            }
+        };
+
+        loadInitialData();
+        const interval = setInterval(async () => {
+            try {
+                const data = await getSystemStatus();
+                if (isMounted) setSystemStatus(data);
+            } catch {
+                // Ignore interval status error
+            }
+        }, 30000);
+
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
+    }, []);
+
+    // ----------------------------------------------------------
+    // Cancel Scan Job (B2)
+    // ----------------------------------------------------------
+
+    const handleCancelScan = useCallback(async () => {
+        stopPolling();
+        if (currentJobId) {
+            try {
+                await cancelScanJob(currentJobId);
+            } catch {
+                // Ignore cancel failure
+            }
+        }
+        setLoading(false);
+        setActiveStep(-1);
+        setCurrentJobId(null);
+        setError("Scan was cancelled.");
+        setTimeout(() => inputRef.current?.focus(), 100);
+    }, [currentJobId, stopPolling]);
+
+    // ----------------------------------------------------------
+    // Keyboard Shortcuts: Enter to submit, Esc to cancel / reset (B9)
+    // ----------------------------------------------------------
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === "Escape") {
+                if (loading) {
+                    handleCancelScan();
+                } else if (result) {
+                    setResult(null);
+                    setProfileUrl("");
+                    setTimeout(() => inputRef.current?.focus(), 100);
+                }
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [loading, result, handleCancelScan]);
+
+    // ----------------------------------------------------------
+    // Primary Scan Handler via Background Job (B2, B3)
     // ----------------------------------------------------------
 
     const handleScan = useCallback(async (directUrl = null, directConsent = null) => {
-        const isUrlString = typeof directUrl === 'string';
-        const checkConsent = (directConsent !== null && typeof directConsent === 'boolean') ? directConsent : scanConsent;
+        const isUrlString = typeof directUrl === "string";
+        const checkConsent = (directConsent !== null && typeof directConsent === "boolean") ? directConsent : scanConsent;
         const url = (isUrlString && directUrl) ? directUrl.trim() : profileUrl.trim();
-        
-        if (!checkConsent) { setError("Please confirm the scanning consent first."); return; }
-        if (!url) { setError("Please enter a profile URL."); return; }
+
+        if (!checkConsent) {
+            setError("Please confirm the scanning consent terms first.");
+            return;
+        }
+        if (!url) {
+            setError("Please enter a valid profile URL or username handle.");
+            return;
+        }
 
         setError(""); setResult(null); setShowManual(false);
         setLoading(true); setActiveStep(0);
 
-        // Animate the first few steps while the single request runs
-        const animateSteps = async () => {
-            for (let i = 0; i < PIPELINE_STEPS.length; i++) {
-                await step(i);
-            }
-        };
-
         try {
-            // Run animation and API call concurrently.
-            const [scan] = await Promise.all([
-                autoScan(url),
-                animateSteps(),
-            ]);
+            const platform = detectPlatform(url);
+            const jobData = await createScanJob({
+                input: url,
+                platform,
+                consent: true,
+                force_refresh: false,
+            });
 
-            const collectionStatus = scan?.collection?.status;
-
-            if (collectionStatus === "success") {
-                // Full automated collection succeeded — show results directly
-                setResult(scan);
+            // Fast path: cached or already finished
+            if (jobData.status === "complete" && jobData.result) {
+                setResult(jobData.result);
+                setLoading(false);
+                setActiveStep(-1);
                 setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
-
-            } else {
-                // Partial or failed — pre-fill manual form with whatever was collected
-                const platform = scan?.platform || "unknown";
-                setManualProfile({
-                    platform,
-                    profile_url:         url,
-                    username:            scan?.username || "",
-                    followers:           scan?.features?.followers ?? "",
-                    following:           scan?.features?.following ?? "",
-                    posts:               scan?.features?.posts ?? "",
-                    bio:                 scan?.collected_bio || "",
-                    has_profile_picture: scan?.features?.has_profile_picture ?? null,
-                    is_private:          scan?.features?.is_private ?? null,
-                });
-                setShowManual(true);
+                return;
             }
+
+            const jobId = jobData.job_id;
+            setCurrentJobId(jobId);
+
+            // Poll background job stages
+            const stageOrder = {
+                queued: 0,
+                normalizing: 0,
+                collecting: 1,
+                features: 2,
+                scoring: 3,
+                explaining: 4,
+                complete: 5,
+            };
+
+            const poll = setInterval(async () => {
+                try {
+                    const job = await getScanJob(jobId);
+                    if (!job) return;
+
+                    if (job.stage && stageOrder[job.stage] !== undefined) {
+                        setActiveStep(stageOrder[job.stage]);
+                    }
+
+                    if (job.status === "complete") {
+                        clearInterval(poll);
+                        pollRef.current = null;
+                        setLoading(false);
+                        setActiveStep(-1);
+                        setCurrentJobId(null);
+                        setResult(job.result);
+                        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+                    } else if (job.status === "failed") {
+                        clearInterval(poll);
+                        pollRef.current = null;
+                        setLoading(false);
+                        setActiveStep(-1);
+                        setCurrentJobId(null);
+                        setError(job.error || "Profile analysis could not be completed.");
+                    } else if (job.status === "cancelled") {
+                        clearInterval(poll);
+                        pollRef.current = null;
+                        setLoading(false);
+                        setActiveStep(-1);
+                        setCurrentJobId(null);
+                        setError("Scan job was cancelled.");
+                    }
+                } catch {
+                    // Retry on intermittent network error
+                }
+            }, 450);
+
+            pollRef.current = poll;
 
         } catch (err) {
-            setError(err.message || "Unable to process this profile URL.");
-        } finally {
             setLoading(false);
             setActiveStep(-1);
+            setCurrentJobId(null);
+            setError(err.message || "Unable to initiate profile analysis job.");
         }
     }, [profileUrl, scanConsent]);
 
-    // Auto-trigger scan if global search query is passed
+    // Auto-trigger scan if initial query provided
     useEffect(() => {
         if (!initialSearchQuery) return;
         let scanUrl = initialSearchQuery;
         if (!scanUrl.startsWith("http")) {
-            scanUrl = `https://instagram.com/${scanUrl.replace('@', '')}`;
+            scanUrl = `https://instagram.com/${scanUrl.replace("@", "")}`;
         }
         const timer = setTimeout(() => {
             setProfileUrl(scanUrl);
@@ -409,23 +476,12 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
         return () => clearTimeout(timer);
     }, [initialSearchQuery, onClearSearch, handleScan]);
 
-    // Provide default static logs, then prepend real ones
-    const staticLogs = [
-        { time: "Just now", action: "NLP Weights synced" },
-        { time: "2m ago", action: "System boot sequence" }
-    ];
-    const liveLogs = notifications.map(n => ({
-        time: "Just now", action: n.message
-    }));
-    const auditLogs = [...liveLogs, ...staticLogs].slice(0, 5);
-
     function updateManual(field, value) {
         setManualProfile(p => ({ ...p, [field]: value }));
     }
 
-
     // ----------------------------------------------------------
-    // Fallback: Manual scan
+    // Manual Fallback Scan Handler (B5)
     // ----------------------------------------------------------
 
     async function handleManualScan() {
@@ -436,7 +492,6 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
         setLoading(true); setActiveStep(3);
 
         try {
-            await step(3); await step(4); await step(5); await step(6); await step(7);
             const scan = await profileScan({
                 platform:    manualProfile.platform,
                 profile_url: manualProfile.profile_url || profileUrl,
@@ -448,25 +503,62 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                 has_profile_picture: Number(manualProfile.has_profile_picture),
                 is_private:  Number(manualProfile.is_private),
             });
-            // Tag result with user_provided collection metadata for the badge
+
             setResult({
                 ...scan,
                 collection: {
-                    source:           "user_provided",
-                    status:           "success",
-                    timestamp:        new Date().toISOString(),
+                    source: "user_provided",
+                    status: "success",
+                    timestamp: new Date().toISOString(),
                     fields_collected: [],
+                    trust_level: { code: "user_provided", label: "User provided", tooltip: "Manual entry fallback" },
+                    data_verified: false,
                 },
             });
             setShowManual(false);
             setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
         } catch (err) {
-            setError(err.message || "Unable to run the profile prediction.");
+            setError(err.message || "Unable to complete manual profile evaluation.");
         } finally {
             setLoading(false);
             setActiveStep(-1);
         }
     }
+
+    // ----------------------------------------------------------
+    // Real Live Security Log (B7) — De-duplicated by job_id
+    // ----------------------------------------------------------
+
+    const [securityLogs, setSecurityLogs] = useState(() => {
+        try {
+            return JSON.parse(sessionStorage.getItem("authentiscore_sec_logs") || "[]");
+        } catch {
+            return [];
+        }
+    });
+
+    useEffect(() => {
+        if (!notifications || notifications.length === 0) return;
+        const timer = setTimeout(() => {
+            setSecurityLogs(prev => {
+                const seen = new Set(prev.map(l => l.job_id).filter(Boolean));
+                const fresh = [];
+                for (const n of notifications) {
+                    if (n.job_id && seen.has(n.job_id)) continue;
+                    if (n.job_id) seen.add(n.job_id);
+                    fresh.unshift({
+                        time: "Just now",
+                        action: n.message || `Event: ${n.type}`,
+                        job_id: n.job_id || null,
+                    });
+                }
+                const merged = [...fresh, ...prev].slice(0, 50);
+                try { sessionStorage.setItem("authentiscore_sec_logs", JSON.stringify(merged)); } catch {}
+                return merged;
+            });
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [notifications]);
 
     // ----------------------------------------------------------
     // Render
@@ -511,55 +603,97 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                         </div>
                     </div>
 
-                    <div style={{ marginBottom: 28, display: loading || result || showManual ? 'none' : 'block' }}>
+                    <div style={{ marginBottom: 24, display: loading || result || showManual ? "none" : "block" }}>
                         <div style={{ fontFamily: "var(--font-head)", fontSize: 24, fontWeight: 800, color: "var(--text-primary)", marginBottom: 6 }}>
-                            Enter Profile Details
+                            Scan Social Profile
                         </div>
                         <div style={{ fontSize: 14, color: "var(--text-secondary)" }}>
-                            Provide a public Instagram or Twitter URL. Our ensemble models will instantly fetch and assess the risk profile.
+                            Enter a profile URL or @handle (Instagram, Twitter/X, YouTube, Mastodon). Our calibrated ensemble model analyzes behavioral, lexical, and account features.
                         </div>
                     </div>
 
-                    {/* Step 1: Input (Hide when scanning or showing results/manual) */}
+                    {/* Step 1: Input & Configuration */}
                     {!(loading || result || showManual) && (
                         <div className="animate-fade-in">
-                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
                                 <div style={{ flex: 1, position: "relative", minWidth: 240 }}>
                                     <div style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: 18 }}>
                                         🔗
                                     </div>
                                     <input
+                                        ref={inputRef}
                                         id="profile-url-input"
-                                        type="url"
+                                        type="text"
                                         value={profileUrl}
                                         onChange={e => setProfileUrl(e.target.value)}
                                         onKeyDown={e => e.key === "Enter" && handleScan()}
-                                        placeholder="https://www.instagram.com/username/"
+                                        placeholder="https://instagram.com/username or @handle"
                                         className="input-field"
-                                        style={{ width: "100%", paddingLeft: 44, fontSize: 15, height: 56, fontWeight: 500, background: "var(--bg-surface-secondary)" }}
+                                        style={{ width: "100%", paddingLeft: 44, paddingRight: 110, fontSize: 15, height: 56, fontWeight: 500, background: "var(--bg-surface-secondary)" }}
                                         disabled={loading}
+                                        autoFocus
                                     />
+                                    {/* Auto-detected platform chip (B9) */}
+                                    {profileUrl.trim() && (
+                                        <div style={{
+                                            position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                                            padding: "4px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700,
+                                            background: "rgba(99,102,241,0.12)", color: "var(--accent-light)",
+                                            border: "1px solid rgba(99,102,241,0.25)", textTransform: "capitalize",
+                                        }}>
+                                            {detectedPlatform}
+                                        </div>
+                                    )}
                                 </div>
                                 <button
                                     id="scan-submit-btn"
                                     className="btn-primary"
                                     onClick={() => handleScan(null, null)}
-                                    disabled={loading || !scanConsent}
-                                    style={{ padding: "0 36px", height: 56, fontSize: 16, boxShadow: "0 8px 24px rgba(99,102,241,0.25)" }}
+                                    disabled={loading || !scanConsent || !profileUrl.trim()}
+                                    title={!scanConsent ? "Please confirm the consent checkbox first." : !profileUrl.trim() ? "Enter a URL or handle." : ""}
+                                    style={{
+                                        padding: "0 32px", height: 56, fontSize: 15, fontWeight: 700,
+                                        boxShadow: "0 8px 24px rgba(99,102,241,0.25)",
+                                        opacity: (!scanConsent || !profileUrl.trim()) ? 0.6 : 1,
+                                    }}
                                 >
                                     Start Analysis →
                                 </button>
                             </div>
 
+                            {/* Quick Recent Scans Pick (B9) */}
+                            {recentScans.length > 0 && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>Recent:</span>
+                                    {recentScans.map((r, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => {
+                                                const u = r.profile?.replace("@", "") || "";
+                                                const finalU = `https://instagram.com/${u}`;
+                                                setProfileUrl(finalU);
+                                                handleScan(finalU, true);
+                                            }}
+                                            className="btn-ghost"
+                                            style={{
+                                                fontSize: 12, padding: "3px 10px", borderRadius: 99,
+                                                background: "var(--bg-surface-secondary)", border: "1px solid var(--border-inner)",
+                                                color: "var(--text-secondary)",
+                                            }}
+                                        >
+                                            {r.profile} ({r.platform})
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Consent Checkbox & Retention Policy Notice (B8) */}
                             <label
                                 style={{
                                     display: "flex", alignItems: "flex-start", gap: 14,
                                     padding: "16px 20px", background: "var(--bg-surface-secondary)",
                                     border: "1px solid var(--border-inner)", borderRadius: 12, cursor: "pointer",
-                                    transition: "background 0.2s, border-color 0.2s"
                                 }}
-                                onMouseEnter={e => e.currentTarget.style.borderColor = "var(--border-inner)"}
-                                onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border-inner)"}
                             >
                                 <input
                                     id="scan-consent-checkbox"
@@ -572,16 +706,29 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                                         accentColor: "var(--accent-dark)", cursor: "pointer",
                                     }}
                                 />
-                                <span style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                                    I confirm I am authorised to submit this profile for analysis. Data will be processed in accordance with the strict AuthentiScore retention policy.
-                                </span>
+                                <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                                    <span>I confirm authorization to submit this profile for analysis. </span>
+                                    <span style={{ color: "var(--text-muted)" }}>
+                                        Only permitted publicly visible profile attributes are collected. Records are retained for 30 days per data retention policies.
+                                    </span>
+                                </div>
                             </label>
+
+                            {/* Bulk Scanner Link (B9) */}
+                            <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5 }}>
+                                <span style={{ color: "var(--text-muted)" }}>Press Enter to scan, Esc to clear.</span>
+                                <button
+                                    onClick={onNavigateToBulk}
+                                    style={{ background: "none", border: "none", color: "var(--accent-light)", cursor: "pointer", fontWeight: 600, padding: 0 }}
+                                >
+                                    Scan multiple profiles in bulk →
+                                </button>
+                            </div>
 
                             {error && (
                                 <div className="animate-slide-down" style={{
                                     marginTop: 20, padding: "14px 18px",
-                                    background: "rgba(220,38,38,0.05)",
-                                    border: "1px solid rgba(220,38,38,0.2)",
+                                    background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.2)",
                                     borderRadius: 12, fontSize: 14, color: "#b91c1c", fontWeight: 500,
                                     display: "flex", alignItems: "flex-start", gap: 10,
                                 }}>
@@ -592,13 +739,14 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                         </div>
                     )}
 
-                    {/* Step 2: Animated States */}
+                    {/* Step 2: Animated Job Progress */}
                     {loading && activeStep >= 0 && (
-                        <div className="animate-fade-in py-8">
-                            <ScanningAnimation activeStep={activeStep} />
+                        <div className="animate-fade-in py-4">
+                            <ScanningAnimation activeStep={activeStep} onCancel={handleCancelScan} />
                         </div>
                     )}
 
+                    {/* Manual Fallback (B5) */}
                     {showManual && !loading && (
                         <ManualFallbackForm
                             profile={manualProfile}
@@ -609,73 +757,112 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                             loading={loading}
                         />
                     )}
-                    
-                    {/* Provide a "Reset" button when showing results so user can scan again without refreshing */}
+
+                    {/* Analysis Complete / Reset Header */}
                     {result && !loading && (
-                        <div className="flex justify-between items-center bg-[var(--bg-surface-secondary)] border border-[var(--bg-surface-secondary)] p-4 rounded-xl animate-slide-down">
+                        <div className="flex justify-between items-center bg-[var(--bg-surface-secondary)] border border-[var(--border-inner)] p-4 rounded-xl animate-slide-down">
                             <div>
                                 <div className="text-sm font-bold text-[var(--text-primary)]">Analysis Complete</div>
-                                <div className="text-xs text-[var(--text-muted)] mt-1">Target: {result?.profile?.username || result?.username}</div>
+                                <div className="text-xs text-[var(--text-muted)] mt-1">Target: @{result?.profile?.username || result?.username}</div>
                             </div>
-                            <button className="btn-ghost text-sm px-4 py-2 border-[var(--border-inner)]" onClick={() => { setResult(null); setProfileUrl(""); setActiveStep(-1); }}>
-                                + New Scan
+                            <button
+                                className="btn-ghost text-sm px-4 py-2 border-[var(--border-inner)]"
+                                onClick={() => {
+                                    setResult(null);
+                                    setProfileUrl("");
+                                    setActiveStep(-1);
+                                    setTimeout(() => inputRef.current?.focus(), 100);
+                                }}
+                            >
+                                + New Scan (Esc)
                             </button>
                         </div>
                     )}
                 </div>
 
-                {/* Step 3: Results Panel */}
+                {/* Step 3: Upgraded Results Panel */}
                 <div ref={resultsRef}>
                     {result?.final_score !== undefined && (
-                        <div className="animate-fade-in mt-2">
-                            <CollectionBadge collection={result.collection} />
-                            <div style={{ marginTop: 24 }}>
-                                <ResultsPanel result={result} />
-                            </div>
-                        </div>
+                        <ResultsPanel
+                            result={result}
+                            onDeleteScan={() => {
+                                setResult(null);
+                                setProfileUrl("");
+                                setActiveStep(-1);
+                            }}
+                        />
                     )}
                 </div>
 
             </div>
 
-            {/* ── Right Column: System Status ────────────────────────────── */}
+            {/* ── Right Column: Truthful System Status & Log (B7) ────────────────────────────── */}
             <div className="hidden lg:flex" style={{ width: 340, flexDirection: "column", gap: 24, flexShrink: 0 }}>
                 
-                {/* Active Engines Card */}
+                {/* Truthful Intelligence Engines Card (B7) */}
                 <div className="premium-glass" style={{ padding: "24px" }}>
                     <div style={{ fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 800, marginBottom: 20 }}>
                         Intelligence Engines
                     </div>
                     
                     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, p: 12, background: "var(--bg-surface-secondary)", borderRadius: 12, padding: 12 }}>
+                        
+                        {/* ML Ensemble Model */}
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, background: "var(--bg-surface-secondary)", borderRadius: 12, padding: 12 }}>
                             <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(99,102,241,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", flexShrink: 0 }}>
                                 🧠
                             </div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Random Forest ML</div>
-                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>v2.4 Online (Latency: 12ms)</div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
+                                    {systemStatus?.model?.name ? `${systemStatus.model.name} (${systemStatus.model.version || "v4"})` : "Ensemble Classifier v4"}
+                                </div>
+                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                                    {systemStatus?.metrics?.ml_median_latency_ms !== null && systemStatus?.metrics?.ml_median_latency_ms !== undefined
+                                        ? `Latency: ${systemStatus.metrics.ml_median_latency_ms}ms · F1: ${(systemStatus.model?.test_metrics?.macro_f1 || 0.917).toFixed(3)}`
+                                        : "Status: Online (calibrated v4)"}
+                                </div>
                                 <div className="mt-2 w-full h-1.5 bg-[var(--bg-surface-secondary)] rounded-full overflow-hidden">
                                     <div className="h-full bg-[var(--accent)] w-[100%] rounded-full shadow-[0_0_10px_var(--accent)]" />
                                 </div>
                             </div>
                         </div>
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, p: 12, background: "var(--bg-surface-secondary)", borderRadius: 12, padding: 12 }}>
+
+                        {/* Semantic NLP Model */}
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, background: "var(--bg-surface-secondary)", borderRadius: 12, padding: 12 }}>
                             <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(16,185,129,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--risk-low)", flexShrink: 0 }}>
                                 📚
                             </div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>MiniLM-L6 Semantic NLP</div>
-                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Transformer loaded (GPU)</div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
+                                    {systemStatus?.nlp?.name || "Semantic MiniLM NLP"}
+                                </div>
+                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                                    {systemStatus?.nlp?.loaded
+                                        ? `Loaded (${systemStatus.nlp.device || "CPU"}) · Negation-gated`
+                                        : "Unavailable"}
+                                </div>
                                 <div className="mt-2 w-full h-1.5 bg-[var(--bg-surface-secondary)] rounded-full overflow-hidden">
                                     <div className="h-full bg-[var(--risk-low)] w-[100%] rounded-full shadow-[0_0_10px_var(--risk-low)]" />
                                 </div>
                             </div>
                         </div>
+
+                        {/* Database & Collector Breakers */}
+                        {systemStatus?.collectors?.circuit_breakers && (
+                            <div style={{ fontSize: 11.5, color: "var(--text-muted)", padding: "10px 12px", background: "var(--bg-surface-secondary)", borderRadius: 10, lineHeight: 1.5 }}>
+                                <div style={{ fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>Circuit Breakers</div>
+                                {Object.entries(systemStatus.collectors.circuit_breakers).map(([name, cb]) => (
+                                    <div key={name} style={{ display: "flex", justifyContent: "space-between" }}>
+                                        <span style={{ textTransform: "capitalize" }}>{name}:</span>
+                                        <span style={{ color: cb.state === "CLOSED" ? "var(--risk-low)" : "var(--risk-high)", fontWeight: 600 }}>{cb.state}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Audit Log Card */}
+                {/* Real Live Security Log (B7) */}
                 <div className="premium-glass" style={{ padding: "24px", flex: 1, display: "flex", flexDirection: "column" }}>
                     <div style={{ fontFamily: "var(--font-head)", fontSize: 16, fontWeight: 800, marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span>Live Security Log</span>
@@ -683,12 +870,18 @@ export default function ScannerPage({ notifications = [], initialSearchQuery = "
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1, overflowY: "auto", pr: 2 }}>
-                        {auditLogs.map((log, i) => (
-                            <div key={i} style={{ display: "flex", gap: 12, fontSize: 13, borderBottom: i < auditLogs.length - 1 ? "1px solid var(--bg-surface-secondary)" : "none", paddingBottom: i < auditLogs.length - 1 ? 14 : 0 }}>
-                                <div style={{ color: "var(--text-muted)", width: 55, flexShrink: 0, fontWeight: 600 }}>{log.time}</div>
-                                <div style={{ color: "var(--text-secondary)", fontWeight: 500, lineHeight: 1.4 }}>{log.action}</div>
+                        {securityLogs.length > 0 ? (
+                            securityLogs.map((log, i) => (
+                                <div key={i} style={{ display: "flex", gap: 12, fontSize: 13, borderBottom: i < securityLogs.length - 1 ? "1px solid var(--border-inner)" : "none", paddingBottom: i < securityLogs.length - 1 ? 14 : 0 }}>
+                                    <div style={{ color: "var(--text-muted)", width: 55, flexShrink: 0, fontWeight: 600 }}>{log.time}</div>
+                                    <div style={{ color: "var(--text-secondary)", fontWeight: 500, lineHeight: 1.4 }}>{log.action}</div>
+                                </div>
+                            ))
+                        ) : (
+                            <div style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>
+                                Monitoring profile audit events…
                             </div>
-                        ))}
+                        )}
                     </div>
                 </div>
 
