@@ -341,6 +341,7 @@ def test_regression_12_user_stats_counts_risk_correctly(hermetic_env):
 # 13. Apify collector returns None for unknown follower fields (C14)
 # ─────────────────────────────────────────────────────────────
 def test_regression_13_apify_collector_no_fake_numbers(monkeypatch):
+    monkeypatch.setenv("APIFY_API_TOKEN", "mock_apify_token_test")
     sample_raw = [
         {"username": "follower_1", "profilePicUrl": "https://img.example/pic.jpg"},
         {"username": "follower_2"}
