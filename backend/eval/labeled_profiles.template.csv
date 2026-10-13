@@ -1,0 +1,4 @@
+platform,profile_url,username,label,labeler,labeled_at,notes,followers,following,posts,bio,has_profile_picture,is_private,is_verified,account_created_at,external_url
+instagram,https://instagram.com/sample_real,sample_real,real,human,2026-10-14T00:00:00Z,verified artist,15420,412,89,"Official account of Sample Artist 🎨",1,0,1,2018-05-12T10:00:00Z,https://sampleartist.com
+instagram,https://instagram.com/sample_fake,sample_fake,fake,human,2026-10-14T00:00:00Z,follow-for-follow bot,12,4920,0,"",0,0,0,2026-09-01T12:00:00Z,
+twitter,https://x.com/GiveawayBot,GiveawayBot,automated_declared,human,2026-10-14T00:00:00Z,declared utility bot,71,10,102,"A bot for hosting giveaways! All entrants have an equal chance. Powered by Random.org",1,0,0,2021-03-15T08:30:00Z,https://giveawaybot.example
