@@ -95,12 +95,37 @@ def run_risk_pipeline(
     # --------------------------------------------------
     features = extract_features(profile)
 
+    # Core 9 features
+    core_features = [k for k in features.keys() if k != "account_age_days"]
+    present_count = sum(1 for k in core_features if features[k] is not None)
+    data_completeness = round(present_count / len(core_features), 4)
+    missing_features = [k for k in core_features if features[k] is None]
+
+    if present_count < 5:
+        # Insufficient Data path
+        return {
+            "features": features,
+            "final_score": None,
+            "classification": "Insufficient Data",
+            "data_completeness": data_completeness,
+            "missing_features": missing_features,
+            "field_sources": {},
+            "platform_coverage": "",
+            "score_breakdown": None,
+            "risk_components": None,
+            "top_ml_factors": None,
+            "nlp_signals": None,
+            "rule_signals": None,
+            "network_signals": None,
+            "image_signals": None
+        }
+
     # --------------------------------------------------
     # 1. ML Risk
     # --------------------------------------------------
 
     ml_risk = calculate_ml_risk(
-        profile
+        features
     )
 
     # --------------------------------------------------
@@ -205,10 +230,15 @@ def run_risk_pipeline(
     # --------------------------------------------------
 
     return {
-
+        "features": features,
         "final_score":    final_score,
 
         "classification": classification,
+        
+        "data_completeness": data_completeness,
+        "missing_features": missing_features,
+        "field_sources": {},
+        "platform_coverage": "",
 
         # Canonical breakdown — use this; do not recompute weights in the frontend
         "score_breakdown": score_breakdown,

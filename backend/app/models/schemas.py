@@ -8,36 +8,41 @@ from typing import Optional, List, Dict, Any
 
 class ProfileData(BaseModel):
 
-    followers: float = Field(ge=0)
+    followers: Optional[float] = Field(ge=0, default=None)
 
-    following: float = Field(ge=0)
+    following: Optional[float] = Field(ge=0, default=None)
 
-    posts: float = Field(ge=0)
+    posts: Optional[float] = Field(ge=0, default=None)
 
-    bio_length: float = Field(ge=0)
+    bio_length: Optional[float] = Field(ge=0, default=None)
 
-    has_profile_picture: int = Field(
+    has_profile_picture: Optional[int] = Field(
         ge=0,
-        le=1
+        le=1,
+        default=None
     )
 
-    is_private: int = Field(
+    is_private: Optional[int] = Field(
         ge=0,
-        le=1
+        le=1,
+        default=None
     )
 
-    username_digit_ratio: float = Field(
+    username_digit_ratio: Optional[float] = Field(
         ge=0,
-        le=1
+        le=1,
+        default=None
     )
 
-    follower_following_ratio: float = Field(
-        ge=0
+    follower_following_ratio: Optional[float] = Field(
+        ge=0,
+        default=None
     )
 
-    profile_completeness: float = Field(
+    profile_completeness: Optional[float] = Field(
         ge=0,
-        le=1
+        le=1,
+        default=None
     )
 
 
@@ -70,13 +75,17 @@ class RiskComponents(BaseModel):
 # ==================================================
 
 class ScanResponse(BaseModel):
-    final_score: float = Field(..., description="Unified risk score between 0 and 1")
-    classification: str = Field(..., description="High, Medium, or Low Risk")
+    final_score: Optional[float] = Field(None, description="Unified risk score between 0 and 1, or None if Insufficient Data")
+    classification: str = Field(..., description="High, Medium, Low Risk, or Insufficient Data")
+    data_completeness: Optional[float] = Field(None, description="Ratio of present features")
+    missing_features: Optional[List[str]] = Field(None, description="List of missing feature names")
+    field_sources: Optional[Dict[str, str]] = Field(None, description="Sources of individual fields")
+    platform_coverage: Optional[str] = Field(None, description="Platform data availability coverage")
     score_breakdown: Optional[Dict[str, Any]] = Field(default=None, description="Canonical breakdown: components, weights, final")
-    risk_components: RiskComponents
-    top_ml_factors: List[dict] = Field(..., description="Top features contributing to the score")
-    nlp_signals: dict = Field(..., description="Hybrid keyword + semantic NLP bio signals")
-    rule_signals: list = Field(..., description="Heuristic profile rules")
+    risk_components: Optional[RiskComponents] = None
+    top_ml_factors: Optional[List[dict]] = Field(None, description="Top features contributing to the score")
+    nlp_signals: Optional[dict] = Field(None, description="Hybrid keyword + semantic NLP bio signals")
+    rule_signals: Optional[list] = Field(None, description="Heuristic profile rules")
     network_signals: Optional[dict] = Field(default=None, description="Signals from Network Graph Analysis")
     image_signals: Optional[dict] = Field(default=None, description="Signals from Image Forensics")
 
@@ -173,18 +182,23 @@ class ProfileScanResponse(BaseModel):
 
     features: Dict[str, Any]
 
-    final_score: float
+    final_score: Optional[float] = None
 
     classification: str
 
+    data_completeness: Optional[float] = None
+    missing_features: Optional[List[str]] = None
+    field_sources: Optional[Dict[str, str]] = None
+    platform_coverage: Optional[str] = None
+
     score_breakdown: Optional[Dict[str, Any]] = None
 
-    risk_components: RiskComponents
+    risk_components: Optional[RiskComponents] = None
 
-    top_ml_factors: List[Dict[str, Any]]
+    top_ml_factors: Optional[List[Dict[str, Any]]] = None
 
-    nlp_signals: Dict[str, Any]
-    rule_signals: List[Dict[str, Any]]
+    nlp_signals: Optional[Dict[str, Any]] = None
+    rule_signals: Optional[List[Dict[str, Any]]] = None
     network_signals: Optional[Dict[str, Any]] = None
     image_signals: Optional[Dict[str, Any]] = None
 
@@ -204,18 +218,23 @@ class CompleteProfileScanResponse(BaseModel):
 
     features: Dict[str, Any]
 
-    final_score: float
+    final_score: Optional[float] = None
 
     classification: str
 
+    data_completeness: Optional[float] = None
+    missing_features: Optional[List[str]] = None
+    field_sources: Optional[Dict[str, str]] = None
+    platform_coverage: Optional[str] = None
+
     score_breakdown: Optional[Dict[str, Any]] = None
 
-    risk_components: RiskComponents
+    risk_components: Optional[RiskComponents] = None
 
-    top_ml_factors: List[Dict[str, Any]]
+    top_ml_factors: Optional[List[Dict[str, Any]]] = None
 
-    nlp_signals: Dict[str, Any]
-    rule_signals: List[Dict[str, Any]]
+    nlp_signals: Optional[Dict[str, Any]] = None
+    rule_signals: Optional[List[Dict[str, Any]]] = None
     network_signals: Optional[Dict[str, Any]] = None
     image_signals: Optional[Dict[str, Any]] = None
 
@@ -303,13 +322,17 @@ class AutoScanResponse(BaseModel):
     features: Dict[str, Any]
 
     # -- Risk results --
-    final_score: float
+    final_score: Optional[float] = None
     classification: str
+    data_completeness: Optional[float] = None
+    missing_features: Optional[List[str]] = None
+    field_sources: Optional[Dict[str, str]] = None
+    platform_coverage: Optional[str] = None
     score_breakdown: Optional[Dict[str, Any]] = None
-    risk_components: RiskComponents
-    top_ml_factors: List[Dict[str, Any]]
-    nlp_signals: Dict[str, Any]
-    rule_signals: List[Dict[str, Any]]
+    risk_components: Optional[RiskComponents] = None
+    top_ml_factors: Optional[List[Dict[str, Any]]] = None
+    nlp_signals: Optional[Dict[str, Any]] = None
+    rule_signals: Optional[List[Dict[str, Any]]] = None
     network_signals: Optional[Dict[str, Any]] = None
     image_signals: Optional[Dict[str, Any]] = None
 

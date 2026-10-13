@@ -32,6 +32,7 @@ from app.services.collectors.instagram_collector import InstagramCollector
 from app.services.collectors.twitter_collector import TwitterCollector
 from app.services.collectors.youtube_collector import YouTubeCollector
 from app.services.collectors.github_collector import GitHubCollector
+from app.services.collectors.mastodon_collector import MastodonCollector
 
 # ==============================================================
 # Supported Platforms
@@ -48,6 +49,8 @@ SUPPORTED_PLATFORMS = {
     "www.youtube.com":   "youtube",
     "github.com":        "github",
     "www.github.com":    "github",
+    "mastodon.social":   "mastodon",
+    "www.mastodon.social":"mastodon",
 }
 
 
@@ -67,6 +70,7 @@ _COLLECTOR_REGISTRY = [
     TwitterCollector(),       # Twitter/X — API v2 + HTML scraper
     YouTubeCollector(),       # YouTube — ytInitialData extractor
     GitHubCollector(),        # GitHub — API
+    MastodonCollector(),      # Mastodon — unauthenticated API
 ]
 
 

@@ -157,3 +157,65 @@ def test_unified_risk_matches_breakdown(ml, nlp, rules, insuf):
     score = calculate_unified_risk(ml, nlp, rules, nlp_insufficient=insuf)
     bd    = build_score_breakdown(ml, nlp, rules, nlp_insufficient=insuf)
     assert score == bd["final"]
+
+
+# ──────────────────────────────────────────────────────────────
+# 11. Risk Engine Rules handle missing data (None)
+# ──────────────────────────────────────────────────────────────
+
+from app.services.risk_engine import calculate_profile_rule_risk
+
+def test_rules_skip_on_none():
+    empty_profile = {
+        "bio_length": None,
+        "has_profile_picture": None,
+        "username_digit_ratio": None,
+        "followers": None,
+        "following": None,
+    }
+    result = calculate_profile_rule_risk(empty_profile)
+    assert result["profile_rule_risk"] == 0
+    
+    signals = result["signals"]
+    # We have 5 rules: empty_bio, no_profile_picture, high_username_digit_ratio, very_low_followers, high_following_ratio
+    assert len(signals) == 5
+    for sig in signals:
+        assert sig["status"] == "skipped (missing data)"
+        assert sig["weight"] == 0
+
+
+# ──────────────────────────────────────────────────────────────
+# 12. Run risk pipeline insufficient data threshold
+# ──────────────────────────────────────────────────────────────
+
+from app.routes.scan import run_risk_pipeline
+
+def test_insufficient_data_threshold():
+    # Provide < 5 features (e.g. only username and picture)
+    profile = {
+        "username": "testuser",
+        "has_profile_picture": 1,
+    }
+    result = run_risk_pipeline(profile, bio="")
+    
+    assert result["classification"] == "Insufficient Data"
+    assert result["final_score"] is None
+    assert result["data_completeness"] < 1.0
+    assert "followers" in result["missing_features"]
+
+def test_full_profile_scores_normally():
+    # Provide at least 5 features
+    profile = {
+        "username": "testuser123",
+        "has_profile_picture": 1,
+        "followers": 500,
+        "following": 100,
+        "posts": 50,
+        "is_private": 0,
+    }
+    result = run_risk_pipeline(profile, bio="This is a test bio.")
+    
+    assert result["classification"] != "Insufficient Data"
+    assert result["final_score"] is not None
+    assert result["data_completeness"] >= 5/9
+    assert result["risk_components"] is not None

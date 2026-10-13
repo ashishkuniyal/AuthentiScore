@@ -11,6 +11,7 @@ FEATURES = [
     "username_digit_ratio",
     "follower_following_ratio",
     "profile_completeness",
+    "account_age_days"
 ]
 
 
@@ -36,6 +37,8 @@ def calculate_follower_following_ratio(
     """
     Calculate followers / following ratio.
     """
+    if followers is None or following is None:
+        return None
 
     if following == 0:
         return float(followers)
@@ -70,6 +73,7 @@ def extract_features(profile: dict) -> dict:
     """
     Convert collected profile data into the
     feature schema required by the ML model.
+    Missing values remain None to honestly reflect data sufficiency.
     """
 
     username = profile.get("username") or ""
@@ -78,56 +82,31 @@ def extract_features(profile: dict) -> dict:
     following = profile.get("following")
     posts = profile.get("posts")
     bio = profile.get("bio")
+    account_age_days = profile.get("account_age_days")
 
-    # Values that are not available from the collector
-    # remain None rather than being fabricated.
-    if followers is None:
-        followers = 0
+    bio_length = len(bio) if bio is not None else None
 
-    if following is None:
-        following = 0
-
-    if posts is None:
-        posts = 0
-
-    if bio is None:
-        bio = ""
-
-    bio_length = len(bio)
-
-    has_profile_picture = profile.get(
-        "has_profile_picture"
-    )
-
-    if has_profile_picture is None:
-        has_profile_picture = 0
-
+    has_profile_picture = profile.get("has_profile_picture")
     is_private = profile.get("is_private")
 
-    if is_private is None:
-        is_private = 0
-
-    username_digit_ratio = calculate_username_digit_ratio(
-        username
-    )
+    username_digit_ratio = calculate_username_digit_ratio(username)
 
     follower_following_ratio = calculate_follower_following_ratio(
         followers,
         following
     )
 
-    profile_completeness = calculate_profile_completeness(
-        profile
-    )
+    profile_completeness = calculate_profile_completeness(profile)
 
     return {
-        "followers": float(followers),
-        "following": float(following),
-        "posts": float(posts),
-        "bio_length": float(bio_length),
-        "has_profile_picture": int(has_profile_picture),
-        "is_private": int(is_private),
+        "followers": float(followers) if followers is not None else None,
+        "following": float(following) if following is not None else None,
+        "posts": float(posts) if posts is not None else None,
+        "bio_length": float(bio_length) if bio_length is not None else None,
+        "has_profile_picture": int(has_profile_picture) if has_profile_picture is not None else None,
+        "is_private": int(is_private) if is_private is not None else None,
         "username_digit_ratio": username_digit_ratio,
         "follower_following_ratio": follower_following_ratio,
         "profile_completeness": profile_completeness,
+        "account_age_days": float(account_age_days) if account_age_days is not None else None,
     }

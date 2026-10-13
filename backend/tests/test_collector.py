@@ -173,7 +173,7 @@ class TestFeatureGeneration(unittest.TestCase):
         features = extract_features(profile)
         self.assertEqual(features["bio_length"], 0.0)
 
-    # Test 9: Missing followers → feature engine defaults to 0
+    # Test 9: Missing followers → feature engine keeps None for data sufficiency
     def test_missing_followers_defaults(self):
         # Simulate a partially collected profile with no followers
         partial_profile = {
@@ -190,11 +190,11 @@ class TestFeatureGeneration(unittest.TestCase):
             "collection_source": "permitted_public_page",
         }
         features = extract_features(partial_profile)
-        self.assertEqual(features["followers"], 0.0)
-        self.assertEqual(features["following"], 0.0)
-        self.assertEqual(features["posts"], 0.0)
+        self.assertIsNone(features["followers"])
+        self.assertIsNone(features["following"])
+        self.assertIsNone(features["posts"])
 
-    # Test 10b: Missing profile picture → feature engine defaults to 0
+    # Test 10b: Missing profile picture → feature engine keeps None
     def test_missing_profile_picture_defaults(self):
         partial_profile = {
             "platform": "instagram",
@@ -210,7 +210,7 @@ class TestFeatureGeneration(unittest.TestCase):
             "collection_source": "permitted_public_page",
         }
         features = extract_features(partial_profile)
-        self.assertEqual(features["has_profile_picture"], 0)
+        self.assertIsNone(features["has_profile_picture"])
 
 
 # ==============================================================
@@ -358,9 +358,9 @@ class TestInstagramCollector(unittest.TestCase):
 class TestTwitterCollector(unittest.TestCase):
 
     # Test 2: Valid Twitter URL — no token → fails gracefully (Test 2)
-    @patch("app.services.collectors.twitter_collector.httpx.get")
-    def test_twitter_no_token_fails_gracefully(self, mock_get):
-        mock_get.side_effect = Exception("Network Error")
+    @patch("app.services.collectors.twitter_collector.fetch_public_page")
+    def test_twitter_no_token_fails_gracefully(self, mock_fetch):
+        mock_fetch.return_value = {"success": False, "error": "Network Error"}
         
         with patch.dict("os.environ", {"TWITTER_BEARER_TOKEN": ""}):
             collector = TwitterCollector()

@@ -1,0 +1,11 @@
+{
+    "LR_cv_roc_auc": 0.9689981447124303,
+    "RF_cv_roc_auc": 0.9899924628942486,
+    "XGB_cv_roc_auc": 0.9865491651205935,
+    "test_brier_score": 0.0677094646346276,
+    "test_roc_auc": 0.9706122448979592,
+    "test_accuracy": 0.9071428571428571,
+    "cross_dataset_instafake_brier": 0.06768404052112635,
+    "cross_dataset_instafake_roc_auc": 0.9844315895372234,
+    "cross_dataset_instafake_accuracy": 0.9120603015075377
+}

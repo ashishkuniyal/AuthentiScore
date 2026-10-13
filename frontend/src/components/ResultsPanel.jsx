@@ -144,7 +144,8 @@ function ExecutiveSummary({ result }) {
 
     // Verdict sentence
     let verdict = "";
-    if (score < 34)      verdict = "This profile shows no significant indicators of inauthenticity.";
+    if (result?.classification === "Insufficient Data") verdict = "Insufficient data to accurately calculate a risk score. Manual review required.";
+    else if (score < 34)      verdict = "This profile shows no significant indicators of inauthenticity.";
     else if (score < 67) verdict = "Some suspicious signals detected. Review the breakdown below.";
     else if (score < 90) verdict = "Multiple strong risk signals detected. High probability of inauthentic activity.";
     else                 verdict = "Critical risk indicators detected. Very likely inauthentic or automated.";
@@ -260,46 +261,63 @@ function ExecutiveSummary({ result }) {
                 )}
             </Card>
 
-            {/* Right — Risk score ring */}
-            <Card style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-                <CardLabel>Unified Risk Score</CardLabel>
-
-                <RiskGauge score={score} animated />
-
-                {/* Declared bot badge alongside risk badge */}
-                {botDeclared && (
-                    <span style={{
-                        display: "inline-flex", alignItems: "center", gap: 6,
-                        padding: "5px 14px", borderRadius: 99, fontSize: 12, fontWeight: 700,
-                        background: "rgba(99,102,241,0.12)", color: "var(--accent-light)",
-                        border: "1px solid rgba(99,102,241,0.3)",
-                    }}>
-                        <Bot size={13} /> Automated (declared)
-                    </span>
-                )}
-
-                {/* Verdict */}
-                <p style={{
-                    margin: 0, fontSize: 13.5, lineHeight: 1.6, textAlign: "center",
-                    color: "var(--text-secondary)", maxWidth: 300,
-                }}>
-                    {verdict}
-                </p>
-
-                {/* Signals used note */}
-                {nlpInsuff && (
-                    <div style={{
-                        display: "inline-flex", alignItems: "center", gap: 6,
-                        padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600,
-                        background: "var(--bg-surface-secondary)",
-                        border: "1px solid var(--border-inner)",
-                        color: "var(--text-secondary)",
-                    }}>
-                        <Info size={13} />
-                        Based on {sigUsed} of 3 signals
+            {/* Right — Risk score ring or Insufficient Data */}
+            {result?.classification === "Insufficient Data" ? (
+                <Card style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+                    <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(245,158,11,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+                        <AlertTriangle size={32} color="#f59e0b" />
                     </div>
-                )}
-            </Card>
+                    <h3 style={{ margin: "0 0 8px 0", fontSize: 24, color: "var(--text-primary)", fontFamily: "var(--font-head)" }}>Insufficient Data</h3>
+                    <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: 14, maxWidth: 280, textAlign: "center" }}>
+                        We could only collect {Math.round((result.data_completeness || 0) * 100)}% of the core features.
+                    </p>
+                    {result?.missing_features?.length > 0 && (
+                        <div style={{ marginTop: 16, fontSize: 13, color: "var(--text-muted)", textAlign: "center" }}>
+                            Missing: {result.missing_features.join(", ")}
+                        </div>
+                    )}
+                </Card>
+            ) : (
+                <Card style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+                    <CardLabel>Unified Risk Score</CardLabel>
+
+                    <RiskGauge score={score} animated />
+
+                    {/* Declared bot badge alongside risk badge */}
+                    {botDeclared && (
+                        <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 6,
+                            padding: "5px 14px", borderRadius: 99, fontSize: 12, fontWeight: 700,
+                            background: "rgba(99,102,241,0.12)", color: "var(--accent-light)",
+                            border: "1px solid rgba(99,102,241,0.3)",
+                        }}>
+                            <Bot size={13} /> Automated (declared)
+                        </span>
+                    )}
+
+                    {/* Verdict */}
+                    <p style={{
+                        margin: 0, fontSize: 13.5, lineHeight: 1.6, textAlign: "center",
+                        color: "var(--text-secondary)", maxWidth: 300,
+                    }}>
+                        {verdict}
+                    </p>
+
+                    {/* Signals used note */}
+                    {nlpInsuff && (
+                        <div style={{
+                            display: "inline-flex", alignItems: "center", gap: 6,
+                            padding: "5px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600,
+                            background: "var(--bg-surface-secondary)",
+                            border: "1px solid var(--border-inner)",
+                            color: "var(--text-secondary)",
+                        }}>
+                            <Info size={13} />
+                            Based on {sigUsed} of 3 signals
+                        </div>
+                    )}
+                </Card>
+            )}
         </div>
     );
 }
@@ -590,17 +608,18 @@ function PdfDownload({ scanId }) {
 // ─────────────────────────────────────────────────────────────
 
 export default function ResultsPanel({ result }) {
-    if (!result || result.final_score === undefined) return null;
+    if (!result || result.classification === undefined) return null;
 
     const scanId = result?.scan_id ?? null;
+    const isInsufficient = result.classification === "Insufficient Data";
 
     return (
         <div style={{ marginTop: 36 }}>
             <ExecutiveSummary result={result} />
-            <RiskBreakdown    result={result} />
+            {!isInsufficient && <RiskBreakdown result={result} />}
 
             {/* Download */}
-            <Card style={{ display: "flex", justifyContent: "center", padding: "28px" }}>
+            <Card style={{ display: "flex", justifyContent: "center", padding: "28px", marginTop: 20 }}>
                 <PdfDownload scanId={scanId} />
             </Card>
         </div>

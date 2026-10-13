@@ -16,7 +16,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = (
     BACKEND_DIR
     / "trained_models"
-    / "authentiscore_ensemble_v2.pkl"
+    / "authentiscore_ensemble_v3.pkl"
 )
 
 FEATURES_PATH = (
@@ -38,11 +38,12 @@ FEATURES = joblib.load(FEATURES_PATH)
 # SHAP Explainer
 # --------------------------------------------------
 
-# Since SHAP TreeExplainer does not natively support VotingClassifier,
-# we explain the ensemble by passing its Random Forest sub-estimator.
+# Since SHAP TreeExplainer does not natively support CalibratedClassifierCV Pipeline,
+# we explain the ensemble by passing its Random Forest sub-estimator from the first fold.
 # This gives >95% identical feature importance directions 100x faster 
 # than using a generic KernelExplainer on the entire ensemble.
-rf_estimator = model.estimators_[0] 
+calibrated = model.named_steps['calibrated_ensemble']
+rf_estimator = calibrated.calibrated_classifiers_[0].estimator.estimators_[1]
 explainer = shap.TreeExplainer(rf_estimator)
 
 # --------------------------------------------------
@@ -138,8 +139,12 @@ def generate_ml_explanation(profile: dict, top_n: int = 3):
         columns=FEATURES
     )
 
+    # Impute missing values before SHAP
+    imputer = model.named_steps['imputer']
+    X_imputed = imputer.transform(X)
+
     # Calculate SHAP values
-    shap_values = explainer.shap_values(X)
+    shap_values = explainer.shap_values(X_imputed)
 
     # Handle Random Forest SHAP output
     #

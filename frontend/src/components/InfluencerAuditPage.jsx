@@ -3,6 +3,7 @@ import { Upload, Users, ShieldAlert, FileText, CheckCircle, Search, Activity, Wi
 import { toast } from "./Toast";
 import { uploadInfluencerCsv, startLiveAudit, getInstagramSessionStatus } from "../services/api";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import ProfileDeepAuditModal from "./ProfileDeepAuditModal";
 
 function StatCard({ label, value, sub, icon: Icon, color }) {
     return (
@@ -37,6 +38,7 @@ export default function InfluencerAuditPage() {
     const [progress, setProgress] = useState(null);
     const [search, setSearch] = useState("");
     const [sessionStatus, setSessionStatus] = useState(null);
+    const [selectedProfile, setSelectedProfile] = useState(null);
     
     const fileInputRef = useRef(null);
     const wsRef = useRef(null);
@@ -193,7 +195,14 @@ export default function InfluencerAuditPage() {
                         <div className="text-6xl font-black mb-2" style={{ color: fakePctColor }}>
                             {result.fake_percentage}%
                         </div>
-                        <div className="text-[var(--text-secondary)] text-sm font-medium mb-4">based on {result.successful_scans} valid profiles</div>
+                        {result.ci_lower !== undefined && (
+                            <div className="text-sm font-semibold mb-2" style={{ color: fakePctColor }}>
+                                95% CI: [{result.ci_lower}%, {result.ci_upper}%]
+                            </div>
+                        )}
+                        <div className="text-[var(--text-secondary)] text-sm font-medium mb-4">
+                            Scored {result.valid_scans !== undefined ? result.valid_scans : result.successful_scans} of {result.sample_size} sampled
+                        </div>
                         {result.collection_success_rate !== undefined && (
                             <div className="text-xs px-3 py-1 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-muted)] border border-[var(--border-inner)]">
                                 Collection Success: <span className="font-bold text-[var(--text-primary)]">{result.collection_success_rate}%</span>
@@ -223,6 +232,12 @@ export default function InfluencerAuditPage() {
                             </div>
                         </div>
                     </div>
+                </div>
+                
+                <div className="mb-8 section-card p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-inner)]">
+                    <p className="text-sm text-[var(--text-muted)] font-medium">
+                        <strong>Disclaimer:</strong> Follower lists obtained via API or scraping are often heavily biased by the platform's algorithms (e.g., returning recent followers or engaged followers rather than a true random sample). Results should be interpreted as an estimate.
+                    </p>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -380,6 +395,7 @@ export default function InfluencerAuditPage() {
                                     <option value="instagram">Instagram (Auth Required)</option>
                                     <option value="twitter">Twitter / X</option>
                                     <option value="github">GitHub</option>
+                                    <option value="mastodon">Mastodon (mastodon.social)</option>
                                 </select>
                             </div>
                         </div>
@@ -510,6 +526,12 @@ export default function InfluencerAuditPage() {
                     </>
                 )}
             </div>
+
+            {/* Profile Deep Audit Modal */}
+            <ProfileDeepAuditModal 
+                profile={selectedProfile} 
+                onClose={() => setSelectedProfile(null)} 
+            />
         </main>
     );
 }

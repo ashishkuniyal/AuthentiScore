@@ -15,7 +15,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = (
     BACKEND_DIR
     / "trained_models"
-    / "authentiscore_ensemble_v2.pkl"
+    / "authentiscore_ensemble_v3.pkl"
 )
 
 FEATURES_PATH = (
@@ -37,14 +37,12 @@ FEATURES = joblib.load(FEATURES_PATH)
 # ML Risk Prediction
 # --------------------------------------------------
 
-def calculate_ml_risk(profile: dict) -> float:
-
-    features_dict = extract_features(profile)
+def calculate_ml_risk(features_dict: dict) -> float:
 
     X = pd.DataFrame(
-        [[features_dict[feature] for feature in FEATURES]],
+        [[features_dict.get(feature) for feature in FEATURES]],
         columns=FEATURES
-    )
+    ).astype(float)
 
     probability = model.predict_proba(X)[0][1]
 

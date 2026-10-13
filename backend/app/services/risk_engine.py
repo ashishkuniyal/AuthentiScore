@@ -59,11 +59,17 @@ def calculate_profile_rule_risk(profile: dict):
     signals = []
 
     # Rule 1: Empty biography
-    bio_length = profile.get("bio_length") or 0
+    bio_length = profile.get("bio_length")
 
-    if bio_length == 0:
+    if bio_length is None:
+        signals.append({
+            "rule": "empty_bio",
+            "weight": 0,
+            "message": "Biography length not available",
+            "status": "skipped (missing data)"
+        })
+    elif bio_length == 0:
         risk += 10
-
         signals.append({
             "rule": "empty_bio",
             "weight": 10,
@@ -72,11 +78,17 @@ def calculate_profile_rule_risk(profile: dict):
         })
 
     # Rule 2: No profile picture
-    has_profile_picture = profile.get("has_profile_picture") or 0
+    has_profile_picture = profile.get("has_profile_picture")
 
-    if has_profile_picture == 0:
+    if has_profile_picture is None:
+        signals.append({
+            "rule": "no_profile_picture",
+            "weight": 0,
+            "message": "Profile picture status not available",
+            "status": "skipped (missing data)"
+        })
+    elif has_profile_picture == 0:
         risk += 15
-
         signals.append({
             "rule": "no_profile_picture",
             "weight": 15,
@@ -85,11 +97,17 @@ def calculate_profile_rule_risk(profile: dict):
         })
 
     # Rule 3: Very high username digit ratio
-    username_digit_ratio = profile.get("username_digit_ratio") or 0
+    username_digit_ratio = profile.get("username_digit_ratio")
 
-    if username_digit_ratio >= 0.5:
+    if username_digit_ratio is None:
+        signals.append({
+            "rule": "high_username_digit_ratio",
+            "weight": 0,
+            "message": "Username digit ratio not available",
+            "status": "skipped (missing data)"
+        })
+    elif username_digit_ratio >= 0.5:
         risk += 15
-
         signals.append({
             "rule": "high_username_digit_ratio",
             "weight": 15,
@@ -98,11 +116,17 @@ def calculate_profile_rule_risk(profile: dict):
         })
 
     # Rule 4: Very low follower count
-    followers = profile.get("followers") or 0
+    followers = profile.get("followers")
 
-    if followers < 10:
+    if followers is None:
+        signals.append({
+            "rule": "very_low_followers",
+            "weight": 0,
+            "message": "Follower count not available",
+            "status": "skipped (missing data)"
+        })
+    elif followers < 10:
         risk += 10
-
         signals.append({
             "rule": "very_low_followers",
             "weight": 10,
@@ -111,15 +135,19 @@ def calculate_profile_rule_risk(profile: dict):
         })
 
     # Rule 5: Very high following/follower imbalance
-    following = profile.get("following") or 0
+    following = profile.get("following")
 
-    if followers > 0:
-
+    if following is None or followers is None:
+        signals.append({
+            "rule": "high_following_ratio",
+            "weight": 0,
+            "message": "Following/follower counts not available",
+            "status": "skipped (missing data)"
+        })
+    elif followers > 0:
         ratio = following / followers
-
         if ratio >= 10:
             risk += 15
-
             signals.append({
                 "rule": "high_following_ratio",
                 "weight": 15,
