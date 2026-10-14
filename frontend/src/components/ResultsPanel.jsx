@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
     Flag, ShieldCheck, ShieldAlert, AlertTriangle, CheckCircle2,
     XCircle, Info, Users, UserCheck, FileText, ImageIcon, Lock,
-    ExternalLink, Download, Bot, Zap, Target, Trash2, Check,
+    ExternalLink, Download, Bot, Zap, Target, Trash2, Check, ArrowLeft,
 } from "lucide-react";
 import RiskGauge from "./RiskGauge";
 import { downloadReportPdf, submitScanFeedback, deleteScan } from "../services/api";
@@ -64,12 +64,13 @@ function Card({ children, style = {} }) {
     );
 }
 
-function CardLabel({ children }) {
+function CardLabel({ children, style = {} }) {
     return (
         <div style={{
             fontSize: 11, fontWeight: 700, letterSpacing: "0.12em",
             textTransform: "uppercase", color: "var(--text-secondary)",
             marginBottom: 16,
+            ...style,
         }}>
             {children}
         </div>
@@ -109,7 +110,7 @@ function StatChip({ icon: Icon, label, value, accent }) {
 // Section 1: Executive Summary (profile + score gauge + confidence)
 // ─────────────────────────────────────────────────────────────
 
-function ExecutiveSummary({ result }) {
+function ExecutiveSummary({ result, onBack, onNewScan }) {
     const profile     = result?.profile ?? {};
     const username    = profile.username ?? result?.username ?? "Unknown";
     const platform    = profile.platform ?? result?.platform ?? "Unknown";
@@ -169,7 +170,40 @@ function ExecutiveSummary({ result }) {
             
             {/* Left Card — Profile Overview */}
             <Card>
-                <CardLabel>Profile Overview</CardLabel>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <CardLabel style={{ marginBottom: 0 }}>Profile Overview</CardLabel>
+                    {onBack && (
+                        <button
+                            id="btn-profile-back"
+                            onClick={onBack}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "6px 14px",
+                                borderRadius: 8,
+                                background: "rgba(99, 102, 241, 0.12)",
+                                border: "1px solid rgba(99, 102, 241, 0.25)",
+                                color: "var(--accent-light)",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                transition: "all 0.2s ease",
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.background = "var(--accent)";
+                                e.currentTarget.style.color = "#ffffff";
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.background = "rgba(99, 102, 241, 0.12)";
+                                e.currentTarget.style.color = "var(--accent-light)";
+                            }}
+                        >
+                            <ArrowLeft size={13} />
+                            Back to Scan
+                        </button>
+                    )}
+                </div>
 
                 {/* Avatar + Handle row */}
                 <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
@@ -696,7 +730,7 @@ function FeedbackSection({ scanId }) {
 // Section 5: PDF Export & Compliance Deletion (B8)
 // ─────────────────────────────────────────────────────────────
 
-function ActionsSection({ scanId, onDeleteScan }) {
+function ActionsSection({ scanId, onDeleteScan, onBack }) {
     const [downloading, setDownloading] = useState(false);
     const [error,       setError]       = useState(null);
     const [deleting,    setDeleting]    = useState(false);
@@ -743,6 +777,28 @@ function ActionsSection({ scanId, onDeleteScan }) {
             <div style={{ width: "100%", height: 1, background: "var(--border-inner)", margin: "8px 0" }} />
 
             <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
+                {/* Back to Scan Button */}
+                {onBack && (
+                    <button
+                        id="btn-actions-back"
+                        onClick={onBack}
+                        className="btn-ghost"
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "12px 24px",
+                            fontSize: 14,
+                            fontWeight: 600,
+                            borderRadius: 12,
+                            border: "1px solid var(--border-hover)",
+                        }}
+                    >
+                        <ArrowLeft size={16} />
+                        Back to Scan
+                    </button>
+                )}
+
                 {/* PDF Download Button */}
                 <button
                     id="btn-download-pdf"
@@ -824,7 +880,7 @@ function ActionsSection({ scanId, onDeleteScan }) {
 // Root Export
 // ─────────────────────────────────────────────────────────────
 
-export default function ResultsPanel({ result, onDeleteScan }) {
+export default function ResultsPanel({ result, onDeleteScan, onBack, onNewScan }) {
     if (!result || result.classification === undefined) return null;
 
     const scanId = result?.scan_id ?? null;
@@ -832,7 +888,7 @@ export default function ResultsPanel({ result, onDeleteScan }) {
 
     return (
         <div style={{ marginTop: 36 }}>
-            <ExecutiveSummary result={result} />
+            <ExecutiveSummary result={result} onBack={onBack} onNewScan={onNewScan} />
 
             {!isInsufficient && (
                 <>
@@ -845,7 +901,7 @@ export default function ResultsPanel({ result, onDeleteScan }) {
                 </>
             )}
 
-            <ActionsSection scanId={scanId} onDeleteScan={onDeleteScan} />
+            <ActionsSection scanId={scanId} onDeleteScan={onDeleteScan} onBack={onBack} />
         </div>
     );
 }

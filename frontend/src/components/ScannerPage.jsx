@@ -1,5 +1,6 @@
 // ScannerPage.jsx — Background Scan Jobs (B2), 24h Cache (B3), Truthful System Status (B7), Keyboard & UX (B9)
 import { useState, useRef, useEffect, useCallback } from "react";
+import { ArrowLeft } from "lucide-react";
 import ResultsPanel from "./ResultsPanel";
 import {
     createScanJob,
@@ -251,7 +252,19 @@ export default function ScannerPage({
     initialSearchQuery = "",
     onClearSearch = () => {},
     onNavigateToBulk = () => {},
+    onNavigate,
+    onBack,
 }) {
+    const handleGoBack = () => {
+        if (result && !loading) {
+            handleBackToScan();
+        } else if (onBack) {
+            onBack();
+        } else if (onNavigate) {
+            onNavigate("dashboard");
+        }
+    };
+
     const [profileUrl,       setProfileUrl]       = useState("");
     const [scanConsent,      setScanConsent]      = useState(true); // Checked by default (B8)
     const [loading,          setLoading]          = useState(false);
@@ -341,6 +354,26 @@ export default function ScannerPage({
     }, [currentJobId, stopPolling]);
 
     // ----------------------------------------------------------
+    // Navigation handlers: Back to scan & New scan
+    // ----------------------------------------------------------
+
+    const handleBackToScan = useCallback(() => {
+        setResult(null);
+        setActiveStep(-1);
+        setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }, 100);
+    }, []);
+
+    const handleNewScan = useCallback(() => {
+        setResult(null);
+        setProfileUrl("");
+        setActiveStep(-1);
+        setTimeout(() => inputRef.current?.focus(), 100);
+    }, []);
+
+    // ----------------------------------------------------------
     // Keyboard Shortcuts: Enter to submit, Esc to cancel / reset (B9)
     // ----------------------------------------------------------
 
@@ -350,15 +383,13 @@ export default function ScannerPage({
                 if (loading) {
                     handleCancelScan();
                 } else if (result) {
-                    setResult(null);
-                    setProfileUrl("");
-                    setTimeout(() => inputRef.current?.focus(), 100);
+                    handleBackToScan();
                 }
             }
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [loading, result, handleCancelScan]);
+    }, [loading, result, handleCancelScan, handleBackToScan]);
 
     // ----------------------------------------------------------
     // Primary Scan Handler via Background Job (B2, B3)
@@ -568,8 +599,37 @@ export default function ScannerPage({
         <div style={{ display: "flex", gap: 32, padding: "32px", maxWidth: 1600, margin: "0 auto", height: "100%" }}>
             
             {/* ── Left Column: Scanner ────────────────────────────── */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 32, maxWidth: 860 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20, maxWidth: 860 }}>
                 
+                {/* Back to Dashboard Navigation */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <button
+                        id="scanner-back-btn"
+                        type="button"
+                        onClick={handleGoBack}
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "8px 16px",
+                            borderRadius: 10,
+                            background: "var(--bg-card)",
+                            border: "1px solid var(--border-inner)",
+                            color: "var(--text-secondary)",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            transition: "all 0.2s ease",
+                            boxShadow: "var(--shadow-sm)",
+                        }}
+                        className="hover:text-[var(--text-primary)] hover:border-[var(--accent)] hover:bg-[var(--bg-surface-secondary)] group"
+                        title={result && !loading ? "Return to configure scan" : "Back to Dashboard"}
+                    >
+                        <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-1" />
+                        <span>{result && !loading ? "← Back to Configure Scan" : "Back to Dashboard"}</span>
+                    </button>
+                </div>
+
                 {/* Scanner Wizard */}
                 <div
                     className="premium-glass"
@@ -587,10 +647,43 @@ export default function ScannerPage({
 
                     {/* Step Wizard Header */}
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 32, borderBottom: "1px solid var(--border-inner)", paddingBottom: 24 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, opacity: (activeStep === -1 && !result && !showManual) ? 1 : 0.4, transition: "opacity 0.3s" }}>
-                            <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--accent)", color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>1</div>
-                            <span style={{ fontSize: 14, fontWeight: 600 }}>Configure Scan</span>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={(result && !loading) ? handleBackToScan : undefined}
+                            disabled={loading || (!result && activeStep === -1)}
+                            title={result && !loading ? "Click to return to Configure Scan (Step 1)" : undefined}
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                background: (result && !loading) ? "rgba(99,102,241,0.12)" : "transparent",
+                                border: (result && !loading) ? "1px solid rgba(99,102,241,0.3)" : "1px solid transparent",
+                                padding: (result && !loading) ? "6px 12px" : "4px 6px",
+                                borderRadius: 10,
+                                cursor: (result && !loading) ? "pointer" : "default",
+                                opacity: (activeStep === -1 && !result && !showManual) ? 1 : (result ? 1 : 0.4),
+                                transition: "all 0.2s ease",
+                            }}
+                        >
+                            <div style={{
+                                width: 24, height: 24, borderRadius: "50%",
+                                background: (activeStep === -1 && !result && !showManual)
+                                    ? "var(--accent)"
+                                    : (result && !loading ? "var(--accent)" : "var(--border-inner)"),
+                                color: "var(--text-primary)",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 12, fontWeight: 700,
+                            }}>
+                                {result && !loading ? "←" : "1"}
+                            </div>
+                            <span style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: (result && !loading) ? "var(--accent-light)" : "var(--text-primary)",
+                            }}>
+                                {result && !loading ? "← Configure Scan" : "Configure Scan"}
+                            </span>
+                        </button>
                         <div style={{ flex: 1, height: 1, background: "var(--border-inner)" }} />
                         <div style={{ display: "flex", alignItems: "center", gap: 8, opacity: loading ? 1 : 0.4, transition: "opacity 0.3s" }}>
                             <div style={{ width: 24, height: 24, borderRadius: "50%", background: loading ? "var(--accent)" : "var(--border-inner)", color: loading ? "var(--text-primary)" : "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>2</div>
@@ -758,24 +851,72 @@ export default function ScannerPage({
                         />
                     )}
 
-                    {/* Analysis Complete / Reset Header */}
+                    {/* Analysis Complete / Back & Reset Header */}
                     {result && !loading && (
-                        <div className="flex justify-between items-center bg-[var(--bg-surface-secondary)] border border-[var(--border-inner)] p-4 rounded-xl animate-slide-down">
-                            <div>
-                                <div className="text-sm font-bold text-[var(--text-primary)]">Analysis Complete</div>
-                                <div className="text-xs text-[var(--text-muted)] mt-1">Target: @{result?.profile?.username || result?.username}</div>
+                        <div
+                            className="animate-slide-down"
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                flexWrap: "wrap",
+                                gap: 16,
+                                padding: "18px 22px",
+                                background: "var(--bg-surface-secondary)",
+                                border: "1px solid var(--border-hover)",
+                                borderRadius: 14,
+                                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.25)",
+                            }}
+                        >
+                            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                                <button
+                                    id="btn-back-to-scan"
+                                    onClick={handleBackToScan}
+                                    className="btn-primary"
+                                    style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        padding: "10px 20px",
+                                        fontSize: 14,
+                                        fontWeight: 700,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    <ArrowLeft size={16} />
+                                    Back to Scan
+                                </button>
+                                <div>
+                                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>
+                                        Analysis Complete
+                                    </div>
+                                    <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>
+                                        Target: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>@{result?.profile?.username || result?.username}</span>
+                                        {(result?.platform || result?.profile?.platform) && (
+                                            <span style={{ textTransform: "capitalize", marginLeft: 6, color: "var(--text-muted)" }}>
+                                                · {result?.platform || result?.profile?.platform}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            <button
-                                className="btn-ghost text-sm px-4 py-2 border-[var(--border-inner)]"
-                                onClick={() => {
-                                    setResult(null);
-                                    setProfileUrl("");
-                                    setActiveStep(-1);
-                                    setTimeout(() => inputRef.current?.focus(), 100);
-                                }}
-                            >
-                                + New Scan (Esc)
-                            </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <button
+                                    id="btn-new-scan"
+                                    className="btn-ghost"
+                                    onClick={handleNewScan}
+                                    style={{
+                                        fontSize: 13,
+                                        padding: "10px 16px",
+                                        border: "1px solid var(--border-hover)",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 6,
+                                    }}
+                                >
+                                    + New Scan (Esc)
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -785,6 +926,8 @@ export default function ScannerPage({
                     {result?.final_score !== undefined && (
                         <ResultsPanel
                             result={result}
+                            onBack={handleBackToScan}
+                            onNewScan={handleNewScan}
                             onDeleteScan={() => {
                                 setResult(null);
                                 setProfileUrl("");

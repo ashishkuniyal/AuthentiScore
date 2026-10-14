@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, Search, User, LogOut, Sun, Moon } from "lucide-react";
+import { Bell, Search, User, LogOut, Sun, Moon, ArrowLeft } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import SettingsModal from "./SettingsModal";
 
@@ -64,17 +64,57 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                 zIndex: 1000,
             }}
         >
-            {/* Breadcrumbs */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 500, color: "var(--text-secondary)" }}>
+            {/* Breadcrumbs & Navigation */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500 }}>
                 {activeTab !== "dashboard" && (
-                    <>
-                        <span>Overview</span>
-                        <span style={{ color: "var(--border-inner)" }}>/</span>
-                    </>
+                    <button
+                        id="btn-header-back"
+                        onClick={() => onNavigate && onNavigate("dashboard")}
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            background: "var(--bg-surface-secondary)",
+                            border: "1px solid var(--border-inner)",
+                            color: "var(--text-secondary)",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                        }}
+                        className="hover:text-[var(--text-primary)] hover:border-[var(--accent)] hover:bg-[var(--border-inner)]"
+                        title="Back to Dashboard"
+                        aria-label="Back to Dashboard"
+                    >
+                        <ArrowLeft size={16} />
+                    </button>
                 )}
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                    {activeTab === "dashboard" ? "Dashboard Overview" : tabName}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)" }}>
+                    {activeTab !== "dashboard" && (
+                        <>
+                            <button
+                                onClick={() => onNavigate && onNavigate("dashboard")}
+                                style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "inherit",
+                                    cursor: "pointer",
+                                    padding: 0,
+                                    fontSize: 14,
+                                    fontWeight: 500,
+                                }}
+                                className="hover:text-[var(--text-primary)] transition-colors"
+                            >
+                                Overview
+                            </button>
+                            <span style={{ color: "var(--border-inner)" }}>/</span>
+                        </>
+                    )}
+                    <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                        {activeTab === "dashboard" ? "Dashboard Overview" : tabName}
+                    </span>
+                </div>
             </div>
 
             {/* Actions */}

@@ -39,7 +39,16 @@ function AppMain() {
                     <Header activeTab={activeTab} notifications={notifications} onSearch={handleGlobalSearch} onNavigate={setActiveTab} />
                     <main style={{ flex: 1, position: "relative", overflowX: "hidden" }}>
                         {activeTab === "dashboard" && <DashboardOverview onNavigate={setActiveTab} />}
-                        {activeTab === "scanner"   && <ScannerPage notifications={notifications} initialSearchQuery={globalSearchQuery} onClearSearch={() => setGlobalSearchQuery("")} />}
+                        {activeTab === "scanner"   && (
+                            <ScannerPage
+                                notifications={notifications}
+                                initialSearchQuery={globalSearchQuery}
+                                onClearSearch={() => setGlobalSearchQuery("")}
+                                onNavigate={setActiveTab}
+                                onBack={() => setActiveTab("dashboard")}
+                                onNavigateToBulk={() => setActiveTab("bulk")}
+                            />
+                        )}
                         {activeTab === "bulk"      && <BulkScannerPage />}
                         {activeTab === "audit"     && <InfluencerAuditPage />}
                         {activeTab === "history"   && <HistoryPage />}
