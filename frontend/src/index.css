@@ -82,6 +82,7 @@
 
   --header-search-bg: #F8FAFC;
   --header-search-border: #E4E7EC;
+  --card-spotlight: rgba(109, 74, 255, 0.08);
 }
 
 [data-theme="dark"] {
@@ -157,6 +158,7 @@
 
   --header-search-bg: rgba(0,0,0,0.2);
   --header-search-border: rgba(255,255,255,0.1);
+  --card-spotlight: rgba(0, 112, 243, 0.12);
 }
 
 /* ===================================================
@@ -358,6 +360,37 @@ h1, h2, h3, h4, h5, h6 {
     0 8px 32px rgba(0, 0, 0, 0.6),
     inset 0 1px 0 rgba(255,255,255,0.05),
     inset 0 0 20px rgba(255,255,255,0.02);
+}
+
+/* Bento Grid Helper with Dynamic Column Reflow */
+.ds-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+@media (min-width: 1024px) {
+  .ds-grid {
+    grid-template-columns: var(--cols, 1fr);
+  }
+}
+
+/* Mouse-follow Spotlight Card */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+}
+.spotlight-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(420px circle at var(--mx, -500px) var(--my, -500px), var(--card-spotlight, rgba(109, 74, 255, 0.09)), transparent 75%);
+  z-index: 5;
+}
+.spotlight-card:hover::after {
+  opacity: 1;
 }
 
 /* Fluid mesh gradient background */

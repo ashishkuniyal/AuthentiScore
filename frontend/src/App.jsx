@@ -38,7 +38,7 @@ function AppMain() {
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh", overflow: "auto" }}>
                     <Header activeTab={activeTab} notifications={notifications} onSearch={handleGlobalSearch} onNavigate={setActiveTab} />
                     <main style={{ flex: 1, position: "relative", overflowX: "hidden" }}>
-                        {activeTab === "dashboard" && <DashboardOverview onNavigate={setActiveTab} />}
+                        {activeTab === "dashboard" && <DashboardOverview onNavigate={setActiveTab} onSearch={handleGlobalSearch} />}
                         {activeTab === "scanner"   && (
                             <ScannerPage
                                 notifications={notifications}

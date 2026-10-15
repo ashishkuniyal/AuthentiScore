@@ -1,6 +1,11 @@
-import { useState, useRef, useEffect } from "react";
-import { Bell, Search, User, LogOut, Sun, Moon, ArrowLeft } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { 
+    Bell, Search, User, LogOut, Sun, Moon, ArrowLeft,
+    Compass, Shield, Layers, History, BarChart3, Settings,
+    X, CornerDownLeft
+} from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import { getRecentScans } from "../services/api";
 import SettingsModal from "./SettingsModal";
 
 export default function Header({ activeTab, notifications = [], onSearch, onNavigate }) {
@@ -9,25 +14,45 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
+    const [showPalette, setShowPalette] = useState(false);
+    const [paletteQuery, setPaletteQuery] = useState("");
+    const [recentProfiles, setRecentProfiles] = useState([]);
+    const [selectedIndex, setSelectedIndex] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
     const [theme, setTheme] = useState(
         localStorage.getItem("theme") || 
         (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
     );
     const searchInputRef = useRef(null);
+    const paletteInputRef = useRef(null);
 
     const unreadCount = notifications.length;
 
+    // Ctrl/Cmd + K opens Command Palette
     useEffect(() => {
         const handleKeyDown = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
-                searchInputRef.current?.focus();
+                setShowPalette(prev => !prev);
+            } else if (e.key === 'Escape') {
+                setShowPalette(false);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    // Fetch recent scans when palette opens
+    useEffect(() => {
+        if (showPalette) {
+            setPaletteQuery("");
+            setSelectedIndex(0);
+            setTimeout(() => paletteInputRef.current?.focus(), 60);
+            getRecentScans(8).then(scans => {
+                if (Array.isArray(scans)) setRecentProfiles(scans);
+            }).catch(() => {});
+        }
+    }, [showPalette]);
 
     useEffect(() => {
         document.documentElement.setAttribute("data-theme", theme);
@@ -47,6 +72,128 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
         }
     };
 
+    // Filtered command palette items
+    const paletteItems = useMemo(() => {
+        const items = [];
+        const q = paletteQuery.trim().toLowerCase();
+
+        // 1. Scan Profile Action
+        if (q) {
+            const cleanHandle = q.replace(/^@/, "");
+            items.push({
+                id: `scan-${cleanHandle}`,
+                type: "action",
+                label: `Scan profile: @${cleanHandle}`,
+                subtitle: "Run forensic AI detection on this handle",
+                icon: Search,
+                action: () => {
+                    if (onSearch) onSearch(cleanHandle);
+                    else if (onNavigate) onNavigate("scanner");
+                }
+            });
+        } else {
+            items.push({
+                id: "action-new-scan",
+                type: "action",
+                label: "Run New Scan",
+                subtitle: "Launch single account risk scanner",
+                icon: Search,
+                action: () => onNavigate && onNavigate("scanner")
+            });
+        }
+
+        // 2. Navigation items
+        const navs = [
+            { id: "nav-dashboard", label: "Dashboard Overview", subtitle: "Telemetry & KPI command center", icon: Compass, tab: "dashboard" },
+            { id: "nav-scanner", label: "Single Scanner", subtitle: "Inspect Instagram, Twitter or TikTok", icon: Shield, tab: "scanner" },
+            { id: "nav-bulk", label: "Bulk Scanner", subtitle: "Batch audit multiple handles via CSV", icon: Layers, tab: "bulk" },
+            { id: "nav-history", label: "Scan History", subtitle: "Historical profile audit database", icon: History, tab: "history" },
+            { id: "nav-analytics", label: "Risk Analytics", subtitle: "Engine component metrics & distribution", icon: BarChart3, tab: "analytics" },
+        ];
+
+        navs.forEach(nav => {
+            if (!q || nav.label.toLowerCase().includes(q) || nav.subtitle.toLowerCase().includes(q)) {
+                items.push({
+                    id: nav.id,
+                    type: "page",
+                    label: nav.label,
+                    subtitle: nav.subtitle,
+                    icon: nav.icon,
+                    action: () => onNavigate && onNavigate(nav.tab)
+                });
+            }
+        });
+
+        // 3. Quick Actions
+        const quickActions = [
+            {
+                id: "action-theme",
+                type: "action",
+                label: theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode",
+                subtitle: "Toggle application theme palette",
+                icon: theme === "dark" ? Sun : Moon,
+                action: toggleTheme
+            },
+            {
+                id: "action-settings",
+                type: "action",
+                label: "Open Settings",
+                subtitle: "Manage detection sensitivity & API keys",
+                icon: Settings,
+                action: () => setShowSettingsModal(true)
+            }
+        ];
+
+        quickActions.forEach(qa => {
+            if (!q || qa.label.toLowerCase().includes(q)) {
+                items.push(qa);
+            }
+        });
+
+        // 4. Recent Profiles
+        if (recentProfiles.length > 0) {
+            recentProfiles.forEach((scan, idx) => {
+                const handle = (scan.profile || scan.username || "").replace(/^@/, "");
+                const platform = scan.platform || "Instagram";
+                if (!handle) return;
+                if (!q || handle.toLowerCase().includes(q) || platform.toLowerCase().includes(q)) {
+                    items.push({
+                        id: `recent-${handle}-${idx}`,
+                        type: "profile",
+                        label: `@${handle}`,
+                        subtitle: `${platform} • ${scan.score || scan.risk_level || "Audit"}`,
+                        icon: Shield,
+                        action: () => {
+                            if (onSearch) onSearch(handle);
+                            else if (onNavigate) onNavigate("scanner");
+                        }
+                    });
+                }
+            });
+        }
+
+        return items;
+    }, [paletteQuery, recentProfiles, theme, onNavigate, onSearch]);
+
+    const handlePaletteKeyDown = (e) => {
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev + 1) % Math.max(1, paletteItems.length));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setSelectedIndex(prev => (prev - 1 + paletteItems.length) % Math.max(1, paletteItems.length));
+        } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (paletteItems[selectedIndex]) {
+                paletteItems[selectedIndex].action();
+                setShowPalette(false);
+            }
+        } else if (e.key === "Escape") {
+            e.preventDefault();
+            setShowPalette(false);
+        }
+    };
+
     return (
         <header
             style={{
@@ -54,7 +201,8 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "0 32px",
+                padding: "0 24px 0 32px",
+                gap: 16,
                 background: "var(--bg-glass-nav)",
                 backdropFilter: "blur(20px)",
                 WebkitBackdropFilter: "blur(20px)",
@@ -62,6 +210,8 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                 position: "sticky",
                 top: 0,
                 zIndex: 1000,
+                boxSizing: "border-box",
+                width: "100%",
             }}
         >
             {/* Breadcrumbs & Navigation */}
@@ -118,7 +268,7 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
             </div>
 
             {/* Actions */}
-            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
                 
                 {/* Global Search Bar */}
                 <div style={{ position: "relative" }} className="hidden sm:block group">
@@ -134,11 +284,11 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                             background: "var(--header-search-bg)",
                             border: "1px solid var(--header-search-border)",
                             borderRadius: 12,
-                            padding: "8px 16px 8px 40px",
+                            padding: "8px 84px 8px 40px",
                             fontSize: 13,
                             color: "var(--text-primary)",
                             outline: "none",
-                            width: 280,
+                            width: "clamp(200px, 20vw, 280px)",
                             transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                             boxShadow: "inset 0 2px 4px var(--bg-surface-secondary)"
                         }}
@@ -146,22 +296,26 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                             e.currentTarget.style.borderColor = "var(--accent)";
                             e.currentTarget.style.boxShadow = "0 0 0 2px rgba(99,102,241,0.2), inset 0 2px 4px var(--bg-surface-secondary)";
                             e.currentTarget.style.background = "var(--bg-surface-secondary)";
-                            e.currentTarget.style.width = "320px";
+                            e.currentTarget.style.width = "min(320px, 28vw)";
                         }}
                         onBlur={e => {
                             e.currentTarget.style.borderColor = "var(--header-search-border)";
                             e.currentTarget.style.boxShadow = "inset 0 2px 4px var(--bg-surface-secondary)";
                             e.currentTarget.style.background = "var(--header-search-bg)";
-                            e.currentTarget.style.width = "280px";
+                            e.currentTarget.style.width = "clamp(200px, 20vw, 280px)";
                         }}
                     />
-                    <div style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", display: "flex", gap: 4, pointerEvents: "none" }}>
+                    <div 
+                        onClick={() => setShowPalette(true)}
+                        style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", display: "flex", gap: 4, cursor: "pointer" }}
+                        title="Open Command Palette (Ctrl+K)"
+                    >
                         <kbd style={{ background: "var(--bg-surface)", border: "1px solid var(--border-inner)", borderRadius: 4, padding: "2px 6px", fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>Ctrl</kbd>
                         <kbd style={{ background: "var(--bg-surface)", border: "1px solid var(--border-inner)", borderRadius: 4, padding: "2px 6px", fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>K</kbd>
                     </div>
                 </div>
 
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
                     <button 
                         onClick={() => setShowNotifications(!showNotifications)}
                         style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", position: "relative", display: "flex", alignItems: "center" }}
@@ -191,7 +345,7 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                     )}
                 </div>
 
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
                     <button 
                         onClick={toggleTheme}
                         style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center" }}
@@ -200,28 +354,30 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
                     </button>
                 </div>
 
-                <div style={{ width: 1, height: 24, background: "var(--border-inner)" }} />
+                <div style={{ width: 1, height: 24, background: "var(--border-inner)", flexShrink: 0 }} />
 
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
                     <button 
                         onClick={() => setShowUserMenu(!showUserMenu)}
                         style={{ 
-                            display: "flex", alignItems: "center", gap: 10, 
+                            display: "flex", alignItems: "center", gap: 9, 
                             background: "var(--btn-secondary-bg)", border: "1px solid var(--btn-secondary-border)", 
                             padding: "6px 14px", borderRadius: 99, cursor: "pointer",
-                            transition: "background 0.2s"
+                            transition: "background 0.2s",
+                            flexShrink: 0,
+                            whiteSpace: "nowrap",
                         }}
                         onMouseEnter={e => e.currentTarget.style.background = "var(--btn-secondary-hover-bg)"}
                         onMouseLeave={e => e.currentTarget.style.background = "var(--btn-secondary-bg)"}
                     >
                         {user?.avatar ? (
-                            <img src={user.avatar} alt="Avatar" style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover" }} />
+                            <img src={user.avatar} alt="Avatar" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
                         ) : (
-                            <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-primary)" }}>
-                                <User size={14} />
+                            <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-primary)", flexShrink: 0 }}>
+                                <User size={13} />
                             </div>
                         )}
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : (user?.username || "Admin")}
                         </span>
                     </button>
@@ -292,6 +448,107 @@ export default function Header({ activeTab, notifications = [], onSearch, onNavi
             {/* Modals */}
             {showSettingsModal && (
                 <SettingsModal onClose={() => setShowSettingsModal(false)} />
+            )}
+
+            {/* Command Palette Modal (Ctrl/Cmd + K) */}
+            {showPalette && (
+                <div 
+                    className="fixed inset-0 z-[2000] flex items-start justify-center pt-20 px-4 bg-black/60 backdrop-blur-md animate-fade-in"
+                    onClick={() => setShowPalette(false)}
+                >
+                    <div 
+                        className="w-full max-w-xl rounded-2xl bg-[var(--bg-card)] border border-[var(--border-inner)] shadow-[var(--shadow-xl)] overflow-hidden flex flex-col animate-scale-in"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Search Input Bar */}
+                        <div className="flex items-center px-4 py-3.5 border-b border-[var(--border-inner)] gap-3 bg-[var(--bg-surface-secondary)]">
+                            <Search size={18} className="text-[var(--accent-light)] shrink-0" />
+                            <input 
+                                ref={paletteInputRef}
+                                type="text"
+                                placeholder="Type a command or search profile handle..."
+                                value={paletteQuery}
+                                onChange={(e) => {
+                                    setPaletteQuery(e.target.value);
+                                    setSelectedIndex(0);
+                                }}
+                                onKeyDown={handlePaletteKeyDown}
+                                className="flex-1 bg-transparent border-none outline-none text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] font-medium"
+                            />
+                            <div className="flex items-center gap-1.5">
+                                <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[var(--bg-surface)] text-[var(--text-muted)] border border-[var(--border-inner)]">ESC</kbd>
+                                <button 
+                                    onClick={() => setShowPalette(false)}
+                                    className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                                    aria-label="Close"
+                                >
+                                    <X size={15} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Results List */}
+                        <div className="max-h-[380px] overflow-y-auto p-2 flex flex-col gap-1 custom-scrollbar">
+                            {paletteItems.length === 0 ? (
+                                <div className="py-10 text-center text-xs text-[var(--text-muted)]">
+                                    No commands or profiles matching &ldquo;{paletteQuery}&rdquo;
+                                </div>
+                            ) : (
+                                paletteItems.map((item, idx) => {
+                                    const Icon = item.icon;
+                                    const isSelected = idx === selectedIndex;
+                                    return (
+                                        <div 
+                                            key={item.id}
+                                            onClick={() => {
+                                                item.action();
+                                                setShowPalette(false);
+                                            }}
+                                            onMouseEnter={() => setSelectedIndex(idx)}
+                                            className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-colors ${
+                                                isSelected 
+                                                    ? "bg-[var(--bg-surface-secondary)] border border-[var(--accent)] text-[var(--text-primary)] shadow-xs" 
+                                                    : "hover:bg-[var(--bg-surface-secondary)] border border-transparent text-[var(--text-secondary)]"
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className={`p-2 rounded-lg border shrink-0 ${isSelected ? "bg-[var(--accent)] text-white border-transparent" : "bg-[var(--bg-card)] border-[var(--border-inner)] text-[var(--text-muted)]"}`}>
+                                                    <Icon size={15} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="text-xs font-bold text-[var(--text-primary)] truncate">
+                                                        {item.label}
+                                                    </div>
+                                                    {item.subtitle && (
+                                                        <div className="text-[10px] text-[var(--text-muted)] truncate">
+                                                            {item.subtitle}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {isSelected && (
+                                                <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] font-mono shrink-0 ml-2">
+                                                    <span>Select</span>
+                                                    <CornerDownLeft size={11} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        {/* Palette Footer */}
+                        <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--border-inner)] bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-muted)]">
+                            <div className="flex items-center gap-3">
+                                <span><kbd className="font-mono font-bold">↑↓</kbd> navigate</span>
+                                <span><kbd className="font-mono font-bold">↵</kbd> select</span>
+                                <span><kbd className="font-mono font-bold">esc</kbd> close</span>
+                            </div>
+                            <span className="font-bold text-[var(--accent-light)]">AuthentiScore Command Palette</span>
+                        </div>
+                    </div>
+                </div>
             )}
         </header>
     );

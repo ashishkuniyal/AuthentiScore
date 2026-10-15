@@ -40,7 +40,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
             className="h-screen bg-[var(--bg-app)] border-r border-[var(--border-inner)] flex flex-col sticky top-0 py-6 px-2 md:px-4 shrink-0 z-40 w-[70px] md:w-[260px] transition-all duration-300 overflow-x-hidden"
         >
             {/* Logo Area */}
-            <div className="flex items-center gap-3 px-2 mb-10 overflow-hidden">
+            <div className="flex items-center gap-3 px-2 mb-6 shrink-0 overflow-hidden">
                 <div
                     className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-white shadow-[var(--shadow-glow)]"
                     style={{ background: "linear-gradient(135deg, #6366f1 0%, #7c3aed 100%)" }}
@@ -58,13 +58,19 @@ export default function Sidebar({ activeTab, onTabChange }) {
             </div>
 
             {/* Navigation */}
-            <nav className="flex flex-col flex-1 w-full overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pr-1">
+            <nav 
+                className="flex flex-col flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden custom-scrollbar pb-3 pr-1"
+                style={{
+                    maskImage: "linear-gradient(to bottom, #000 calc(100% - 28px), transparent)",
+                    WebkitMaskImage: "linear-gradient(to bottom, #000 calc(100% - 28px), transparent)",
+                }}
+            >
                 {MENU_GROUPS.map((group, groupIdx) => (
-                    <div key={groupIdx} className="mb-6 last:mb-0">
-                        <div className="hidden md:block text-[11px] uppercase font-extrabold text-[var(--text-muted)] tracking-[0.1em] px-2 mb-2">
+                    <div key={groupIdx} className="mb-4 last:mb-0">
+                        <div className="hidden md:block text-[10px] uppercase font-extrabold text-[var(--text-muted)] tracking-[0.1em] px-2 mb-1.5">
                             {group.title}
                         </div>
-                        <div className="flex flex-col gap-1.5">
+                        <div className="flex flex-col gap-1">
                             {group.items.map((tab) => {
                                 const isActive = activeTab === tab.id;
                                 const Icon = tab.icon;
@@ -72,7 +78,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
                                     <button
                                         key={tab.id}
                                         onClick={() => onTabChange(tab.id)}
-                                        className={`flex items-center gap-3 p-2.5 md:px-3.5 rounded-xl border text-left w-full transition-all duration-300 justify-center md:justify-start group relative overflow-hidden ${
+                                        className={`flex items-center gap-3 p-2 md:px-3 md:py-2 rounded-xl border text-left w-full transition-all duration-300 justify-center md:justify-start group relative overflow-hidden ${
                                             isActive ? "font-bold shadow-[inset_2px_0_0_var(--nav-active-border)]" 
                                             : "nav-item"
                                         }`}
@@ -93,32 +99,23 @@ export default function Sidebar({ activeTab, onTabChange }) {
                 ))}
             </nav>
 
-            {/* System Status Mock */}
-            <div className="mt-auto pt-4 border-t border-[var(--border)]">
+            {/* System Status Compact Row */}
+            <div className="mt-auto pt-3 border-t border-[var(--border-inner)] shrink-0">
+                {/* TODO: Wire latency and statuses to a real system health endpoint */}
                 <div 
-                    className="p-4 rounded-xl hidden md:block relative overflow-hidden group border"
+                    className="p-2.5 rounded-xl flex items-center justify-center md:justify-between border transition-all cursor-default group"
                     style={{ background: 'var(--sys-status-bg)', borderColor: 'var(--sys-status-border)' }}
+                    title="ML Engine: 14ms | API Gateway: Online | Database: Connected"
                 >
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-[var(--risk-low)] opacity-10 blur-2xl group-hover:opacity-20 transition-opacity" />
-                    <div className="flex items-center gap-2 mb-3 relative z-10 border-b border-[var(--border-inner)] pb-2">
-                        <span className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">System Status</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-[var(--risk-low)] shadow-[0_0_8px_var(--risk-low)] animate-pulse shrink-0" />
+                        <span className="hidden md:inline text-xs font-bold text-[var(--risk-low)] truncate">
+                            All systems operational
+                        </span>
                     </div>
-                    <div className="flex items-center gap-2 mb-3 relative z-10">
-                        <span className="w-2 h-2 rounded-full bg-[var(--risk-low)] shadow-[0_0_8px_var(--risk-low)] animate-pulse" />
-                        <span className="text-[13px] font-bold text-[var(--risk-low)]">All Systems Operational</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-[var(--text-muted)] mt-2 relative z-10">
-                        <span>ML Engine</span>
-                        <span className="text-[var(--text-secondary)] font-mono">14ms</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-[var(--text-muted)] mt-1 relative z-10">
-                        <span>API Gateway</span>
-                        <span className="text-[var(--risk-low)] font-semibold">Online</span>
-                    </div>
-                    <div className="flex justify-between text-[11px] text-[var(--text-muted)] mt-1 relative z-10">
-                        <span>Database</span>
-                        <span className="text-[var(--risk-low)] font-semibold">Connected</span>
-                    </div>
+                    <span className="hidden md:inline text-[11px] text-[var(--text-muted)] font-mono shrink-0 ml-1">
+                        14ms
+                    </span>
                 </div>
             </div>
         </aside>

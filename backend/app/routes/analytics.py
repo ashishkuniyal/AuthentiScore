@@ -65,30 +65,45 @@ def dashboard_summary(current_user: dict = Depends(get_current_active_user)):
     authentic_count = 0
     insufficient_count = 0
     daily_volume = defaultdict(int)
+    daily_fake = defaultdict(int)
+    daily_authentic = defaultdict(int)
 
     for scan in scans:
         final_score = scan.get("final_score")
         classification = scan.get("classification") or ""
 
+        is_fake = False
+        is_auth = False
         if final_score is None or "insufficient" in classification.lower():
             insufficient_count += 1
         elif is_suspicious(final_score):
             fake_count += 1
+            is_fake = True
         else:
             authentic_count += 1
+            is_auth = True
 
         ts = scan.get("timestamp")
         if ts:
             try:
                 date_key = ts.strftime("%Y-%m-%d")
                 daily_volume[date_key] += 1
+                if is_fake:
+                    daily_fake[date_key] += 1
+                elif is_auth:
+                    daily_authentic[date_key] += 1
             except AttributeError:
                 pass
 
     scan_volume = []
     for i in range(29, -1, -1):
         d = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
-        scan_volume.append({"date": d, "scans": daily_volume.get(d, 0)})
+        scan_volume.append({
+            "date": d,
+            "scans": daily_volume.get(d, 0),
+            "fake": daily_fake.get(d, 0),
+            "authentic": daily_authentic.get(d, 0),
+        })
 
     return {
         "total_scans": total_scans,
@@ -202,7 +217,7 @@ def analytics_summary(
         for d in sorted(daily_counts.keys())[-7:]
     ]
 
-    # Top risky scans: exclude None scores (C4)
+    # Top risky scans: exclude None scores (C4) and deduplicate by (username, platform)
     scored_scans = [s for s in scans if s.get("final_score") is not None]
     sorted_scans = sorted(
         scored_scans,
@@ -210,8 +225,18 @@ def analytics_summary(
         reverse=True,
     )
 
+    seen_pairs = set()
+    uniq = []
+    for s in sorted_scans:
+        uname = (s.get("username") or "").strip().lower()
+        plat = (s.get("platform") or "").strip().lower()
+        key = (uname, plat)
+        if key not in seen_pairs:
+            seen_pairs.add(key)
+            uniq.append(s)
+
     top_risky_scans = []
-    for s in sorted_scans[:5]:
+    for s in uniq[:5]:
         ts = s.get("timestamp")
         cls = s.get("classification") or ""
         top_risky_scans.append({
